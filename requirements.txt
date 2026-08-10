@@ -5,3 +5,4 @@ pillow
 tinify
 gspread
 google-auth
+scrapling
