@@ -1,0 +1,7 @@
+streamlit
+pandas
+openpyxl
+pillow
+tinify
+gspread
+google-auth
