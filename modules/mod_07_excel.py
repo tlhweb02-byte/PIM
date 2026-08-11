@@ -19,6 +19,7 @@ def simplify_title(row):
     if "耐高系列男女童大童速干双面穿篮球球衣" in name_str:
         return "大童速干篮球衣"
 
+    # 1. 提取性别/年龄前缀 (prefix)
     prefix = ""
     if "大童" in name_str:
         prefix = "大童"
@@ -37,6 +38,7 @@ def simplify_title(row):
     else:
         prefix = "男子"
 
+    # 2. 提取品类后缀 (suffix)
     suffix = ""
     if "篮球球衣" in name_str or "篮球衣" in name_str:
         suffix = "篮球衣"
@@ -79,39 +81,55 @@ def simplify_title(row):
     else:
         suffix = "服装"
 
-    mid = ""
-    if feat_str and feat_str != "双面":
-        mid = feat_str
-    elif "速干" in name_str and ("球衣" in name_str or "短裤" in name_str):
-        mid = "速干"
-
+    # 扩展修饰词库（包含材质、款式、功能等词汇）
     keywords = [
+        "摇粒绒", "灯芯绒", "工装", "长袖", "短袖", "羽绒", "加绒", "拒水", "防风",
         "复古", "修身", "宽松", "速干", "纯棉", "休闲", "柔软", "舒适", "轻便", 
         "百搭", "干爽", "轻盈", "弹性", "耐穿", "随性", "短款", "梭织", "轻松", 
         "导湿", "中腰", "高腰", "顺滑", "贴合", "双面", "印花", "空军", "透气", 
         "机能", "赛博", "缓震", "防水", "稳程", "实战", "包头", "防晒", "时尚",
-        "经典", "日常", "运动"
+        "经典", "日常", "运动", "简约", "保暖"
     ]
 
-    if not mid:
-        for kw in keywords:
-            if kw in name_str and kw not in prefix and kw not in suffix:
+    # 判断是否与卖点词重合的核心判断函数
+    def is_overlapping_with_feat(kw, feat):
+        if not feat or feat.lower() == 'nan':
+            return False
+        return (kw in feat) or (feat in kw)
+
+    mid = ""
+
+    # 3. 优先从原名称中寻找修饰词，并跳过与卖点重合的词
+    for kw in keywords:
+        if kw in name_str and kw not in prefix and kw not in suffix:
+            if not is_overlapping_with_feat(kw, feat_str):
                 mid = kw
+                break
+
+    # 4. 校正卖点重合机制（保底校验）
+    # 若 mid 为空或与卖点发生重合，自动选用不重合的备用词
+    if not mid or is_overlapping_with_feat(mid, feat_str):
+        mid = ""
+        backup_candidates = ["经典", "日常", "时尚", "运动", "休闲", "简约", "百搭", "舒适"]
+        for candidate in backup_candidates:
+            if not is_overlapping_with_feat(candidate, feat_str) and candidate not in prefix and candidate not in suffix:
+                mid = candidate
                 break
 
     res = prefix + mid + suffix
 
+    # 5. 补齐字数限制（6~7字），补全词同样校验不与卖点重合
     if len(res) < 6:
         for kw in keywords:
-            if kw not in res:
+            if kw not in res and not is_overlapping_with_feat(kw, feat_str):
                 candidate = prefix + mid + kw + suffix
                 if len(candidate) >= 6:
                     res = candidate
                     break
 
     if len(res) < 6:
-        for fill in ["时尚", "运动", "经典", "休闲", "百搭"]:
-            if fill not in res:
+        for fill in ["时尚", "运动", "经典", "休闲", "百搭", "日常", "简约"]:
+            if fill not in res and not is_overlapping_with_feat(fill, feat_str):
                 candidate = prefix + fill + mid + suffix
                 if len(candidate) >= 6:
                     res = candidate
@@ -203,7 +221,6 @@ def render_ui():
             with st.spinner("正在智能转换表格，请稍候..."):
                 df_result, output_buffer = process_excel(uploaded_file)
                 
-                # 关键：转化成功后记录数据到 mod_stats 仪表盘
                 try:
                     mod_stats.record_excel_cleaning(1)
                 except Exception as e:
