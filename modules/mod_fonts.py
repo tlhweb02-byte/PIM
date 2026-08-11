@@ -17,7 +17,7 @@ def render_ui():
     
     st.markdown("---")
     
-    # 修复：传入列表指定两列的宽窄比例
+    # ⚠️ 注意：这里必须写 或数字 2，括号内不能留空！
     col1, col2 = st.columns()
     
     with col1:
