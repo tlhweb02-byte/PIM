@@ -17,6 +17,7 @@ def render_ui():
     
     st.markdown("---")
     
+    # 修复：传入列表指定两列的宽窄比例
     col1, col2 = st.columns()
     
     with col1:
