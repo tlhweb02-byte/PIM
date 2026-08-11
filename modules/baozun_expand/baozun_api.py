@@ -33,8 +33,9 @@ class BaozunExpandAPI:
       cookie_str: str = "",
       **kwargs,
   ):
-    """万能参数兼容初始化，同时支持 manual_cookie 和 cookie_str 参数名"""
     self.base_url = base_url.rstrip("/")
+    cookie_val = manual_cookie or cookie_str
+    self.is_using_manual_cookie = bool(cookie_val)
 
     if FetcherSession is not None:
       self.session = FetcherSession(impersonate="chrome")
@@ -50,24 +51,24 @@ class BaozunExpandAPI:
     if hasattr(self.session, "headers"):
       self.session.headers.update(default_headers)
 
-    self.account_mgr = BaozunAccountAPI()
-
-    # 兼容 manual_cookie 与 cookie_str 两种传参名
-    cookie_val = manual_cookie or cookie_str
-
     if cookie_val:
       parsed_cookies = parse_cookie_string(cookie_val)
       if hasattr(self.session, "cookies"):
         self.session.cookies.update(parsed_cookies)
     else:
+      self.account_mgr = BaozunAccountAPI()
       self.sync_cookies_from_account_mgr()
 
   def sync_cookies_from_account_mgr(self, force_refresh: bool = False):
     """自动维护最新有效的宝尊鉴权 Cookie"""
-    if force_refresh:
-      cookie_str = self.account_mgr.login_and_get_cookie_str()
-    else:
-      cookie_str = self.account_mgr.get_valid_cookie()
+    if self.is_using_manual_cookie:
+      return
+
+    cookie_str = (
+        self.account_mgr.login_and_get_cookie_str()
+        if force_refresh
+        else self.account_mgr.get_valid_cookie()
+    )
 
     if cookie_str:
       parsed_cookies = parse_cookie_string(cookie_str)
@@ -121,6 +122,12 @@ class BaozunExpandAPI:
         attempt_logs.append(f"[{url}] 请求失败: {str(e)}")
 
     if any("UAAC" in log for log in attempt_logs):
+      if self.is_using_manual_cookie:
+        raise ValueError(
+            "手动传入的 Cookie 鉴权失败！请检查是否复制了完整包含"
+            " SESSION/UAAC/token 的宝尊登录凭证（请勿复制成 Hm_lvt 百度统计"
+            " Cookie）。"
+        )
       self.sync_cookies_from_account_mgr(force_refresh=True)
       return self.upload_image(file_bytes, filename)
 
@@ -170,6 +177,10 @@ class BaozunExpandAPI:
 
     if isinstance(res_data, str) and res_data.strip():
       if "UAAC" in res_data or "鉴权" in res_data:
+        if self.is_using_manual_cookie:
+          raise ValueError(
+              "手动传入的 Cookie 鉴权验证失败！请从 ROSS 页面重新复制有效的登录 Cookie。"
+          )
         self.sync_cookies_from_account_mgr(force_refresh=True)
         resp = self.session.post(url, json=payload, timeout=15)
         res_data = resp.json()
@@ -229,7 +240,12 @@ class BaozunExpandAPI:
             status = _safe_get(data, "status") or _safe_get(res_data, "status")
             last_summary = f"生成状态 status={status}"
           else:
-            if "UAAC" in str(res_data):
+            if "UAAC" in str(res_data) or "鉴权" in str(res_data):
+              if self.is_using_manual_cookie:
+                raise ValueError(
+                    "手动输入的 Cookie 鉴权失败！请确认复制的是包含 SESSION/UAAC/token"
+                    " 的登录凭证。"
+                )
               self.sync_cookies_from_account_mgr(force_refresh=True)
             last_summary = f"返回数据: {res_data}"
         except ValueError as ve:
