@@ -17,8 +17,8 @@ def render_ui():
     
     st.markdown("---")
     
-    # ⚠️ 注意：这里必须写 或数字 2，括号内不能留空！
-    col1, col2 = st.columns()
+    # 划分 2 列布局
+    col1, col2 = st.columns(2)
     
     with col1:
         st.subheader("📦 包含字体说明")
