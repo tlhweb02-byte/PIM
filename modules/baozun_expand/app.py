@@ -14,6 +14,26 @@ def render_ui():
   st.title("🎨 宝尊智能扩图 (ROSS)")
   st.caption("全自动智能扩图中台，自动维护鉴权并调用宝尊 ROSS 引擎扩展背景。")
 
+  # 手动 Cookie 备用通道
+  with st.expander(
+      "🔑 宝尊账号鉴权配置 (手动 Cookie 备用通道)", expanded=False
+  ):
+    st.markdown("""
+        **当邮件自动化发信延迟时，可在此粘贴宝尊 Cookie 作为备用通道：**
+        * **1 秒极速提取 Cookie 方法**：在已登录的 ROSS 网页按 `F12`，切换到 **Console（控制台）** 粘贴下方代码回车，Cookie 就会自动复制到剪贴板！
+        ```javascript
+        copy(document.cookie); alert("Cookie 已复制到剪贴板！");
+        ```
+        """)
+    manual_cookie = st.text_area(
+        "请粘贴 Cookie 字符串：",
+        value=st.session_state.get("baozun_cookie", ""),
+        placeholder="例如: SESSION=xxxx; UAAC=xxxx; ...",
+        help="为空时会自动使用后台账号邮件自动化登录",
+    )
+    if manual_cookie:
+      st.session_state["baozun_cookie"] = manual_cookie.strip()
+
   col_left, col_right = st.columns(2)
 
   with col_left:
@@ -44,7 +64,6 @@ def render_ui():
       bottom_d = st.number_input("下边距 (bottomDistance)", value=140, step=10)
       right_d = st.number_input("右边距 (rightDistance)", value=205, step=10)
 
-    # 自动推算目标画布大小 (原图尺寸 + 四周边距)
     calc_bg_w = orig_w + left_d + right_d if uploaded_file else 800
     calc_bg_h = orig_h + top_d + bottom_d if uploaded_file else 800
 
@@ -72,8 +91,13 @@ def render_ui():
   if start_btn and uploaded_file:
     status_box = st.status("正在处理扩图任务...", expanded=True)
     try:
-      status_box.write("🔑 正在校验宝尊账号 UAAC 鉴权状态...")
-      api = BaozunExpandAPI()
+      cookie_to_use = st.session_state.get("baozun_cookie", "")
+      if cookie_to_use:
+        status_box.write("🔑 正在使用手动传入的 Cookie 凭证进行鉴权...")
+      else:
+        status_box.write("🔑 正在自动校验/获取后台宝尊账号鉴权...")
+
+      api = BaozunExpandAPI(manual_cookie=cookie_to_use)
 
       status_box.write("正在上传图片到宝尊服务器...")
       attachment_code = api.upload_image(
