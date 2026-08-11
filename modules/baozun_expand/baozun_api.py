@@ -26,10 +26,16 @@ def _safe_get(obj, key, default=None):
 
 class BaozunExpandAPI:
 
-  def __init__(self, base_url: str = "https://union-gateway.baozun.com"):
+  def __init__(
+      self,
+      base_url: str = "https://union-gateway.baozun.com",
+      manual_cookie: str = "",
+      cookie_str: str = "",
+      **kwargs,
+  ):
+    """万能参数兼容初始化，同时支持 manual_cookie 和 cookie_str 参数名"""
     self.base_url = base_url.rstrip("/")
 
-    # 优先使用 Scrapling 的 Chrome 伪装 Session，防止 WAF 拦截
     if FetcherSession is not None:
       self.session = FetcherSession(impersonate="chrome")
     else:
@@ -45,7 +51,16 @@ class BaozunExpandAPI:
       self.session.headers.update(default_headers)
 
     self.account_mgr = BaozunAccountAPI()
-    self.sync_cookies_from_account_mgr()
+
+    # 兼容 manual_cookie 与 cookie_str 两种传参名
+    cookie_val = manual_cookie or cookie_str
+
+    if cookie_val:
+      parsed_cookies = parse_cookie_string(cookie_val)
+      if hasattr(self.session, "cookies"):
+        self.session.cookies.update(parsed_cookies)
+    else:
+      self.sync_cookies_from_account_mgr()
 
   def sync_cookies_from_account_mgr(self, force_refresh: bool = False):
     """自动维护最新有效的宝尊鉴权 Cookie"""
