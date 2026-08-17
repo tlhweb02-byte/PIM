@@ -1,3 +1,5 @@
+import json
+import os
 import time
 import requests
 
@@ -18,6 +20,12 @@ def _safe_get(obj, key, default=None):
   if isinstance(obj, dict):
     return obj.get(key, default)
   return default
+
+
+# 登录会话缓存文件：保存 Cookie + 票据，下次运行直接复用（类似浏览器记住登录态）
+LOGIN_CACHE_FILE = os.path.join(
+    os.path.dirname(__file__), "baozun_login_cache.json"
+)
 
 
 class BaozunExpandAPI:
@@ -68,12 +76,14 @@ class BaozunExpandAPI:
       self.account_mgr = BaozunAccountAPI(
           tenant=self.saas_tenant_code, appkey=self.app_id
       )
-      try:
-        self.sync_login_from_account()
-      except OtpRequiredError as e:
-        # 验证码已发送但自动读取超时：进入"等待人工输入验证码"状态
-        self.login_pending = True
-        self._pending_login = e
+      # 优先复用磁盘缓存的登录会话（避免每次都走密码+验证码）
+      if not self._try_reuse_cached_login():
+        try:
+          self.sync_login_from_account()
+        except OtpRequiredError as e:
+          # 验证码已发送但自动读取超时：进入"等待人工输入验证码"状态
+          self.login_pending = True
+          self._pending_login = e
 
   # ------------------------------------------------------------------
   # 自动登录（UAAC 密码 + 邮箱验证码 + 网关票据兑换）
@@ -86,6 +96,7 @@ class BaozunExpandAPI:
     result = self.account_mgr.login_full()
     self._apply_login(result)
     self._exchange_login()
+    self._save_login_cache()
 
   def complete_login_with_otp(self, otp_code: str):
     """自动读取验证码超时后，用人工输入的验证码完成登录并继续"""
@@ -99,6 +110,7 @@ class BaozunExpandAPI:
     )
     self._apply_login(result)
     self._exchange_login()
+    self._save_login_cache()
     return self
 
   def _apply_login(self, result: dict):
@@ -107,9 +119,72 @@ class BaozunExpandAPI:
     self.token = result["token"]
     self.saas_tenant_code = result["tenant"]
 
-  def _exchange_login(self):
-    """用 UAAC 票据在 union-gateway 上兑换 ross 与 iforce 应用会话"""
+  def _cookies_to_str(self) -> str:
+    """把会话 Cookie 序列化为字符串（用于持久化缓存）"""
+    cj = getattr(self.session, "cookies", None)
+    if cj is None:
+      return ""
+    parts = []
+    try:
+      if isinstance(cj, dict):
+        for k, v in cj.items():
+          parts.append(f"{k}={v}")
+      else:
+        for c in cj:
+          parts.append(f"{c.name}={c.value}")
+    except Exception:
+      pass
+    return "; ".join(parts)
+
+  def _save_login_cache(self):
+    """持久化登录会话（Cookie + 票据 + 租户），供下次运行复用"""
+    try:
+      data = {
+          "cookie": self._cookies_to_str(),
+          "token": self.token,
+          "tenant": self.saas_tenant_code,
+          "appkey": self.app_id,
+          "ts": time.time(),
+      }
+      with open(LOGIN_CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    except Exception as e:
+      print(f"保存登录缓存失败: {e}")
+
+  def _try_reuse_cached_login(self) -> bool:
+    """尝试复用磁盘缓存登录态：还原 Cookie + 票据，再兑换会话验证有效性"""
+    try:
+      with open(LOGIN_CACHE_FILE, "r", encoding="utf-8") as f:
+        cache = json.load(f)
+    except Exception:
+      return False
+
+    cookie_str = cache.get("cookie", "")
+    token = cache.get("token", "")
+    tenant = cache.get("tenant", "baozun")
+    appkey = cache.get("appkey", "ross-modern-api")
+    if not cookie_str or not token:
+      return False
+
+    parsed = parse_cookie_string(cookie_str)
+    if hasattr(self.session, "cookies"):
+      self.session.cookies.update(parsed)
+    self.token = token
+    self.saas_tenant_code = tenant
+    self.app_id = appkey
+
+    if self._exchange_login():
+      print("已复用缓存的登录会话，无需重新验证")
+      return True
+
+    # 缓存失效：清空，走完整登录
+    self.token = ""
+    return False
+
+  def _exchange_login(self) -> bool:
+    """用 UAAC 票据在 union-gateway 上兑换 ross 与 iforce 应用会话；返回是否全部成功"""
     headers = self._auth_headers()
+    ok = True
     for path in ("/ross-modern-api/login", "/iforce/login"):
       try:
         resp = self.session.post(
@@ -117,9 +192,12 @@ class BaozunExpandAPI:
         )
         data = _safe_get(resp.json(), "success")
         if data is not True:
+          ok = False
           print(f"兑换登录 {path} 未成功: {resp.text[:120]}")
       except Exception as e:
+        ok = False
         print(f"兑换登录 {path} 异常: {e}")
+    return ok
 
   def _auth_headers(self) -> dict:
     """所有 union-gateway 请求都必须携带的认证头"""
@@ -314,12 +392,17 @@ class BaozunExpandAPI:
     raise ValueError(f"提交扩图任务失败: {res_data}")
 
   def get_image_expand_result(
-      self, record_code: str, poll_interval: int = 3, timeout: int = 180
+      self,
+      record_code: str,
+      poll_interval: int = 3,
+      timeout: int = 180,
+      expected_count: int = 1,
   ) -> list:
-    """3. 轮询扩图生成结果"""
+    """3. 轮询扩图生成结果（等待返回 expected_count 张图后结束）"""
     url = f"{self.base_url}/iforce/art/image/getImageExpand"
     start_time = time.time()
     last_summary = ""
+    collected_urls = []
 
     while time.time() - start_time < timeout:
       resp = self.session.get(
@@ -355,11 +438,15 @@ class BaozunExpandAPI:
                   if isinstance(item, dict)
                   and _safe_get(item, "attachmentPath")
               ]
-              if urls:
+              collected_urls = urls
+              # 生成数量达到预期即返回；否则继续轮询等待剩余图片
+              if len(urls) >= max(1, int(expected_count)):
                 return urls
 
             status = _safe_get(data, "status") or _safe_get(res_data, "status")
-            last_summary = f"生成状态 status={status}"
+            last_summary = (
+                f"生成状态 status={status}, 已返回 {len(collected_urls)} 张"
+            )
           else:
             if self._is_auth_fail(str(res_data)):
               if self.is_using_manual_cookie:
@@ -376,4 +463,7 @@ class BaozunExpandAPI:
 
       time.sleep(poll_interval)
 
+    # 超时：若已拿到部分图片则返回，否则报错
+    if collected_urls:
+      return collected_urls
     raise TimeoutError(f"扩图任务超时 (3分钟)。宝尊最新状态: {last_summary}")

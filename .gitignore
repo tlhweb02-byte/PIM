@@ -5,6 +5,7 @@
 
 # 运行时缓存（内含登录 Cookie 等敏感会话信息，切勿公开）
 modules/baozun_expand/baozun_cookie_cache.json
+modules/baozun_expand/baozun_login_cache.json
 
 # Python 缓存与虚拟环境
 __pycache__/

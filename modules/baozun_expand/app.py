@@ -82,7 +82,10 @@ def _run_expand_task(status_box, task, api):
 
     status_box.write("AI 正在渲染生成图片（正在实时查询进度，预估 1~2 分钟）...")
     result_urls = api.get_image_expand_result(
-        record_code, poll_interval=3, timeout=180
+        record_code,
+        poll_interval=3,
+        timeout=180,
+        expected_count=p["gen_num"],
     )
 
     status_box.update(
