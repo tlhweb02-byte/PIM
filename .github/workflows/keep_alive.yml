@@ -2,19 +2,34 @@ name: Keep Streamlit Alive
 
 on:
   schedule:
-    # 每 5 分钟 ping 一次（GitHub Actions 最短间隔），避免免费版应用空闲休眠
+    # 每 5 分钟用真实浏览器访问一次，保持 WebSocket 活跃，防止休眠
     - cron: '*/5 * * * *'
-  # 支持在 GitHub 页面手动点击按钮触发测试
   workflow_dispatch:
 
 jobs:
-  ping-app:
+  keep-alive:
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.44.0-jammy
     steps:
-      - name: Ping pim999 Streamlit App
+      - name: 安装 playwright npm 包
         run: |
-          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 https://pim999.streamlit.app/)
-          echo "HTTP status: $code"
-          if [ "$code" != "200" ]; then
-            echo "::warning::Ping 返回状态码 $code，应用可能仍在唤醒中或出现异常"
-          fi
+          npm init -y > /dev/null 2>&1
+          npm install playwright@1.44.0 > /dev/null 2>&1
+      - name: 用真实浏览器打开应用并保持连接
+        run: |
+          node <<'EOF'
+          const { chromium } = require('playwright');
+          (async () => {
+            const browser = await chromium.launch();
+            const page = await browser.newPage();
+            await page.goto('https://pim999.streamlit.app/', {
+              waitUntil: 'domcontentloaded',
+              timeout: 120000,
+            });
+            // 保持连接 20 秒，确保 WebSocket 会话真正建立
+            await page.waitForTimeout(20000);
+            console.log('页面标题:', await page.title());
+            await browser.close();
+          })().catch((e) => { console.error(e); process.exit(1); });
+          EOF
