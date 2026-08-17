@@ -24,7 +24,7 @@ except ImportError:
     SHEETS_OK = False
 
 # ---------- 可配置项（可通过 .env / Streamlit Secrets 覆盖） ----------
-AUTH_VERSION = "1.1.1"           # 账号系统版本（侧边栏显示，用于确认部署是否成功）
+AUTH_VERSION = "1.1.2"           # 账号系统版本（侧边栏显示，用于确认部署是否成功）
 DEFAULT_FREE_QUOTA = 10          # 新用户免费体验次数
 PBKDF2_ITERATIONS = 120000       # 密码哈希迭代次数（越慢越难被暴力破解）
 

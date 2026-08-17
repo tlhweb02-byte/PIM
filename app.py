@@ -59,6 +59,9 @@ def render_auth_panel():
         try:
             if auth_mode == "登录":
                 ok, msg, _ = mod_auth.login_user(auth_username, auth_password)
+                if ok:
+                    # 关键：登录成功必须写入登录会话，否则 rerun 后又回到未登录状态
+                    mod_auth.set_logged_in(auth_username)
             else:
                 if auth_password != auth_password2:
                     st.sidebar.error("两次输入的密码不一致")
