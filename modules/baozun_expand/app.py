@@ -1,4 +1,5 @@
 from PIL import Image
+import time as _time
 import streamlit as st
 
 try:
@@ -8,6 +9,29 @@ except ImportError:
     from modules.baozun_expand.baozun_api import BaozunExpandAPI
   except ImportError:
     from baozun_api import BaozunExpandAPI
+
+# 自动登录会话复用时长（秒）：期间内不重复登录、不重复发送验证码邮件
+_SESSION_TTL = 2 * 3600
+
+
+def _get_api(manual_cookie: str):
+  """复用已登录的 API 会话，避免每次点击都重新登录并发验证码邮件"""
+  cached = st.session_state.get("baozun_api_cache")
+  if (
+      cached
+      and cached.get("cookie") == (manual_cookie or "")
+      and cached.get("is_manual") == bool(manual_cookie)
+      and _time.time() - cached.get("ts", 0) < _SESSION_TTL
+  ):
+    return cached["api"]
+  api = BaozunExpandAPI(manual_cookie=manual_cookie)
+  st.session_state["baozun_api_cache"] = {
+      "api": api,
+      "cookie": manual_cookie or "",
+      "is_manual": bool(manual_cookie),
+      "ts": _time.time(),
+  }
+  return api
 
 
 def render_ui():
@@ -97,7 +121,7 @@ def render_ui():
       else:
         status_box.write("🔑 正在自动校验/获取后台宝尊账号鉴权...")
 
-      api = BaozunExpandAPI(manual_cookie=cookie_to_use)
+      api = _get_api(cookie_to_use)
 
       status_box.write("正在上传图片到宝尊服务器...")
       attachment_code = api.upload_image(
