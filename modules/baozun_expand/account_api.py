@@ -183,6 +183,22 @@ class BaozunAccountAPI:
         body = ""
     return body
 
+  @staticmethod
+  def _extract_otp(text: str) -> str:
+    """从文本中提取验证码：优先取「验证码」等关键词后紧跟的 6 位数字；
+    兜底取独立成词的 6 位数字（排除被字母包裹的，如账号 jm038153 里的 038153）"""
+    m = re.search(
+        r"(?:验证码|动态口令|安全码|校验码|登录码"
+        r"|verification\s*code|security\s*code|one-?time\s*password|OTP)"
+        r"[^\d]{0,12}(\d{6})",
+        text,
+        re.I,
+    )
+    if m:
+      return m.group(1)
+    codes = re.findall(r"(?<![\dA-Za-z])\d{6}(?![\dA-Za-z])", text)
+    return codes[0] if codes else ""
+
   def fetch_latest_email_otp(
       self, timeout: int = 180, poll_interval: int = 3
   ) -> str:
@@ -262,8 +278,8 @@ class BaozunAccountAPI:
     sender = str(msg.get("From", "") or "")
     body = self._extract_body(msg)
     combined = subject + " " + body
-    codes = re.findall(r"(?<!\d)\d{6}(?!\d)", combined)
-    if not codes:
+    otp = self._extract_otp(combined)
+    if not otp:
       return "", 0
 
     score = 0
@@ -296,7 +312,7 @@ class BaozunAccountAPI:
     except Exception:
       pass
 
-    return codes[0], score
+    return otp, score
 
   def _fetch_ticket(self, session) -> str:
     """获取租户访问票据 token；需要二次认证时返回空串"""
@@ -445,9 +461,7 @@ class BaozunAccountAPI:
             msg = email.message_from_bytes(rp[1])
             subject = str(msg.get("Subject", "") or "")
             sender = str(msg.get("From", "") or "")
-            codes = re.findall(
-                r"(?<!\d)\d{6}(?!\d)", subject + " " + self._extract_body(msg)
-            )
+            otp = self._extract_otp(subject + " " + self._extract_body(msg))
             age = ""
             try:
               dt = email_utils.parsedate_to_datetime(
@@ -462,7 +476,7 @@ class BaozunAccountAPI:
                 "subject": subject[:60],
                 "sender": sender[:50],
                 "age": age,
-                "codes": codes[:3],
+                "codes": [otp] if otp else [],
             })
       except Exception as e:
         result["emails"].append({
