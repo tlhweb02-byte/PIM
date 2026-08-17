@@ -59,6 +59,17 @@ def parse_cookie_string(cookie_str: str) -> dict:
   return cookies
 
 
+class OtpRequiredError(Exception):
+  """验证码已发送但自动读取失败，需要人工在界面上输入验证码"""
+
+  def __init__(self, message: str, session=None, tenant: str = "",
+               appkey: str = ""):
+    super().__init__(message)
+    self.session = session
+    self.tenant = tenant
+    self.appkey = appkey
+
+
 # ---------------------------------------------------------------------------
 # RSA 加密（纯 Python 实现，无第三方依赖；与前端 JSEncrypt 输出一致：base64）
 # ---------------------------------------------------------------------------
@@ -145,52 +156,91 @@ class BaozunAccountAPI:
       session.headers.update(default_headers)
     return session
 
+  @staticmethod
+  def _extract_body(msg) -> str:
+    """提取邮件正文（HTML 转纯文本、反转义）"""
+    import html as _html
+    body = ""
+    if msg.is_multipart():
+      for part in msg.walk():
+        if part.get_content_type() in ["text/plain", "text/html"]:
+          try:
+            decoded = part.get_payload(decode=True).decode(
+                "utf-8", errors="ignore"
+            )
+          except Exception:
+            continue
+          if part.get_content_type() == "text/html":
+            decoded = re.sub(r"<[^>]+>", " ", decoded)
+            decoded = _html.unescape(decoded)
+          body += " " + decoded
+    else:
+      try:
+        body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+      except Exception:
+        body = ""
+    return body
+
   def fetch_latest_email_otp(
-      self, timeout: int = 75, poll_interval: int = 3
+      self, timeout: int = 120, poll_interval: int = 3
   ) -> str:
     """从 QQ 邮箱提取宝尊发来的 6 位验证码（公司邮箱自动转发到 QQ）"""
     start_time = time.time()
+    login_fail_count = 0
 
     while time.time() - start_time < timeout:
       try:
         mail = imaplib.IMAP4_SSL(self.imap_server, 993)
         mail.login(self.qq_email, self.qq_auth_code)
+        login_fail_count = 0
         mail.select("INBOX")
 
         _, search_data = mail.search(None, "ALL")
-        mail_ids = search_data[0].split()[-8:]
+        mail_ids = search_data[0].split()[-30:]
 
+        # 给每封候选邮件打分：主题/正文/发件人命中关键词越强越优先
+        best_score, best_code = 0, ""
         for mail_id in reversed(mail_ids):
           _, msg_data = mail.fetch(mail_id, "(RFC822)")
           for response_part in msg_data:
             if not isinstance(response_part, tuple):
               continue
             msg = email.message_from_bytes(response_part)
-
             subject = str(msg.get("Subject", "") or "")
-            body = ""
-            if msg.is_multipart():
-              for part in msg.walk():
-                if part.get_content_type() in ["text/plain", "text/html"]:
-                  body += part.get_payload(decode=True).decode(
-                      "utf-8", errors="ignore"
-                  )
-            else:
-              body = msg.get_payload(decode=True).decode(
-                  "utf-8", errors="ignore"
-              )
+            sender = str(msg.get("From", "") or "")
+            body = self._extract_body(msg)
 
             combined = subject + " " + body
-            # 宝尊验证码邮件关键词（主题或正文）
-            if any(k in combined for k in [
-                "验证码", "UAC", "宝尊", "baozun", "verification", "登录"
-            ]):
-              codes = re.findall(r"\b\d{6}\b", combined)
-              if codes:
-                mail.logout()
-                return codes[0]
+            score = 0
+            if re.search(
+                r"验证码|UAC|宝尊|baozun|verification|登录", subject, re.I
+            ):
+              score += 3
+            if re.search(
+                r"验证码|UAC|宝尊|baozun|verification|登录", body, re.I
+            ):
+              score += 2
+            if "baozun" in sender.lower():
+              score += 2
+            if score == 0:
+              continue
+            codes = re.findall(r"(?<!\d)\d{6}(?!\d)", combined)
+            if codes and score > best_score:
+              best_score, best_code = score, codes[0]
 
         mail.logout()
+        if best_code:
+          return best_code
+      except imaplib.IMAP4.error as e:
+        login_fail_count += 1
+        print(f"QQ邮箱IMAP错误: {e}")
+        if login_fail_count >= 3:
+          raise ValueError(
+              f"QQ 邮箱 IMAP 登录失败({e})。请检查："
+              f"1) QQ邮箱→设置→账户→IMAP/SMTP 服务是否开启; "
+              f"2) BAOZUN_QQ_AUTH_CODE 是否为 IMAP 授权码（非登录密码）; "
+              f"3) 云端 IP 是否被 QQ 风控拦截"
+          )
       except Exception as e:
         print(f"读取邮件验证码中: {e}")
 
@@ -217,11 +267,14 @@ class BaozunAccountAPI:
       )
     raise ValueError(f"获取宝尊访问票据失败: {resp.get('message')}")
 
-  def login_full(self) -> dict:
+  def login_full(
+      self, otp_code: str = "", otp_timeout: int = 120
+  ) -> dict:
     """完整 UAAC 登录流程（已按真实接口验证）：
     1) RSA 公钥加密密码 → 密码登录
-    2) 发送邮箱验证码 → 从 QQ 邮箱读取 → 校验
+    2) 发送邮箱验证码 → 从 QQ 邮箱读取（或传入 otp_code 直接使用）→ 校验
     3) 获取租户访问票据 token
+    自动读取验证码超时时抛出 OtpRequiredError（可用 complete_login_with_otp 补交）
     返回: {session, token, tenant, appkey}
     """
     session = self._new_session()
@@ -277,10 +330,13 @@ class BaozunAccountAPI:
             f"(可能发送过于频繁，请稍后再试)"
         )
 
-      otp = self.fetch_latest_email_otp(timeout=75)
+      otp = otp_code or self.fetch_latest_email_otp(timeout=otp_timeout)
       if not otp:
-        raise TimeoutError(
-            "读取邮箱验证码超时，请检查公司邮箱到 QQ 邮箱的转发配置"
+        raise OtpRequiredError(
+            "验证码已发送但自动读取超时，请在界面上手动输入邮箱收到的验证码",
+            session=session,
+            tenant=self.tenant,
+            appkey=self.appkey,
         )
 
       verify_resp = session.get(
@@ -298,6 +354,40 @@ class BaozunAccountAPI:
 
       ticket = self._fetch_ticket(session)
 
+    if not ticket:
+      raise RuntimeError("未能获取宝尊访问票据 token，请稍后重试")
+
+    return {
+        "session": session,
+        "token": ticket,
+        "tenant": self.tenant,
+        "appkey": self.appkey,
+    }
+
+  def complete_login_with_otp(
+      self, otp_code: str, session, tenant: str = "", appkey: str = ""
+  ) -> dict:
+    """自动读取验证码失败后，用人工输入的验证码完成登录"""
+    self.tenant = tenant or self.tenant
+    self.appkey = appkey or self.appkey
+
+    verify_resp = session.get(
+        f"{UAAC_BASE}/api/uaac/account/twoFactor/verifyCode",
+        params={
+            "type": "email",
+            "saasTenantCode": self.tenant,
+            "code": otp_code,
+        },
+        timeout=15,
+    ).json()
+    code = str(verify_resp.get("code", ""))
+    if code not in ("0", "200", "00000"):
+      raise ValueError(
+          f"验证码校验失败: {verify_resp.get('message')}"
+          f"（验证码可能已过期，请重新点击生成）"
+      )
+
+    ticket = self._fetch_ticket(session)
     if not ticket:
       raise RuntimeError("未能获取宝尊访问票据 token，请稍后重试")
 

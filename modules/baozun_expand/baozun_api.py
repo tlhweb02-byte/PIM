@@ -8,6 +8,7 @@ except ImportError:
 
 from .account_api import (
     BaozunAccountAPI,
+    OtpRequiredError,
     _get_secret,
     parse_cookie_string,
 )
@@ -26,6 +27,7 @@ class BaozunExpandAPI:
       base_url: str = "https://union-gateway.baozun.com",
       manual_cookie: str = "",
       cookie_str: str = "",
+      auth_result: dict = None,
       **kwargs,
   ):
     self.base_url = base_url.rstrip("/")
@@ -50,16 +52,28 @@ class BaozunExpandAPI:
     self.token = ""
     self.saas_tenant_code = _get_secret("BAOZUN_TENANT", "baozun")
     self.app_id = _get_secret("BAOZUN_APPKEY", "ross-modern-api")
+    # 自动登录是否在等待人工验证码
+    self.login_pending = False
+    self._pending_login = None
 
     if cookie_val:
       parsed_cookies = parse_cookie_string(cookie_val)
       if hasattr(self.session, "cookies"):
         self.session.cookies.update(parsed_cookies)
+    elif auth_result:
+      self.is_using_manual_cookie = False
+      self._apply_login(auth_result)
     else:
+      self.is_using_manual_cookie = False
       self.account_mgr = BaozunAccountAPI(
           tenant=self.saas_tenant_code, appkey=self.app_id
       )
-      self.sync_login_from_account()
+      try:
+        self.sync_login_from_account()
+      except OtpRequiredError as e:
+        # 验证码已发送但自动读取超时：进入"等待人工输入验证码"状态
+        self.login_pending = True
+        self._pending_login = e
 
   # ------------------------------------------------------------------
   # 自动登录（UAAC 密码 + 邮箱验证码 + 网关票据兑换）
@@ -70,10 +84,28 @@ class BaozunExpandAPI:
       return
 
     result = self.account_mgr.login_full()
-    self.session = result["session"]  # 继承 UAAC 会话 Cookie（含 SECURITY_ID）
+    self._apply_login(result)
+    self._exchange_login()
+
+  def complete_login_with_otp(self, otp_code: str):
+    """自动读取验证码超时后，用人工输入的验证码完成登录并继续"""
+    if not self._pending_login:
+      raise ValueError("当前没有待完成的登录，请重新点击生成")
+    e = self._pending_login
+    self._pending_login = None
+    self.login_pending = False
+    result = self.account_mgr.complete_login_with_otp(
+        otp_code, e.session, e.tenant, e.appkey
+    )
+    self._apply_login(result)
+    self._exchange_login()
+    return self
+
+  def _apply_login(self, result: dict):
+    """应用登录结果：继承 UAAC 会话 + 保存票据/租户"""
+    self.session = result["session"]
     self.token = result["token"]
     self.saas_tenant_code = result["tenant"]
-    self._exchange_login()
 
   def _exchange_login(self):
     """用 UAAC 票据在 union-gateway 上兑换 ross 与 iforce 应用会话"""

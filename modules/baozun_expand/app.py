@@ -15,7 +15,10 @@ _SESSION_TTL = 2 * 3600
 
 
 def _get_api(manual_cookie: str):
-  """复用已登录的 API 会话，避免每次点击都重新登录并发验证码邮件"""
+  """复用已登录的 API 会话；返回 None 表示正在等待人工输入验证码"""
+  # 已有待人工验证码的登录 → 直接返回 None（避免重复登录、重复发邮件）
+  if st.session_state.get("baozun_otp_pending_api") is not None:
+    return None
   cached = st.session_state.get("baozun_api_cache")
   if (
       cached
@@ -25,6 +28,10 @@ def _get_api(manual_cookie: str):
   ):
     return cached["api"]
   api = BaozunExpandAPI(manual_cookie=manual_cookie)
+  if getattr(api, "login_pending", False):
+    # 验证码已发送但自动读取超时，进入人工输入流程
+    st.session_state["baozun_otp_pending_api"] = api
+    return None
   st.session_state["baozun_api_cache"] = {
       "api": api,
       "cookie": manual_cookie or "",
@@ -32,6 +39,58 @@ def _get_api(manual_cookie: str):
       "ts": _time.time(),
   }
   return api
+
+
+def _run_expand_task(status_box, task, api):
+  """执行上传 → 提交扩图 → 轮询结果"""
+  file_bytes = task["file"]
+  filename = task["filename"]
+  p = task["params"]
+  try:
+    if task["cookie"]:
+      status_box.write("🔑 正在使用手动传入的 Cookie 凭证进行鉴权...")
+    else:
+      status_box.write("🔑 正在自动校验/获取后台宝尊账号鉴权...")
+
+    status_box.write("正在上传图片到宝尊服务器...")
+    attachment_code = api.upload_image(file_bytes, filename)
+
+    status_box.write(
+        f"正在提交智能扩图任务 (目标画布: {p['bg_w']}x{p['bg_h']}, "
+        f"原图: {p['orig_w']}x{p['orig_h']})..."
+    )
+    record_code = api.submit_image_expand(
+        original_attachment_code=attachment_code,
+        top_distance=p["top_d"],
+        bottom_distance=p["bottom_d"],
+        left_distance=p["left_d"],
+        right_distance=p["right_d"],
+        background_weight=p["bg_w"],
+        background_height=p["bg_h"],
+        original_weight=p["orig_w"],
+        original_height=p["orig_h"],
+        generated_num=p["gen_num"],
+    )
+
+    status_box.write("AI 正在渲染生成图片（正在实时查询进度，预估 1~2 分钟）...")
+    result_urls = api.get_image_expand_result(
+        record_code, poll_interval=3, timeout=180
+    )
+
+    status_box.update(
+        label="🎉 扩图生成完成！", state="complete", expanded=False
+    )
+
+    st.subheader("3. 生成结果")
+    grid_cols = st.columns(len(result_urls))
+    for idx, url in enumerate(result_urls):
+      with grid_cols[idx]:
+        st.image(url, caption=f"方案 {idx + 1}", use_container_width=True)
+        st.markdown(
+            f"[点击下载图片]({url})", unsafe_allow_html=True
+        )
+  except Exception as e:
+    status_box.update(label=f"❌ 扩图失败: {str(e)}", state="error")
 
 
 def render_ui():
@@ -112,55 +171,65 @@ def render_ui():
         "✨ 立即生成", type="primary", disabled=(not uploaded_file)
     )
 
+  # ============ 任务状态机 ============
+  # 点击"立即生成"→ 记录任务 → rerun → 执行（可能等待人工验证码）
   if start_btn and uploaded_file:
+    st.session_state["baozun_task"] = {
+        "cookie": st.session_state.get("baozun_cookie", ""),
+        "file": uploaded_file.getvalue(),
+        "filename": uploaded_file.name,
+        "params": {
+            "bg_w": int(bg_w),
+            "bg_h": int(bg_h),
+            "orig_w": orig_w,
+            "orig_h": orig_h,
+            "top_d": int(top_d),
+            "bottom_d": int(bottom_d),
+            "left_d": int(left_d),
+            "right_d": int(right_d),
+            "gen_num": int(gen_num),
+        },
+    }
+    st.session_state.pop("baozun_otp_pending_api", None)
+    st.rerun()
+
+  task = st.session_state.get("baozun_task")
+  if task:
     status_box = st.status("正在处理扩图任务...", expanded=True)
-    try:
-      cookie_to_use = st.session_state.get("baozun_cookie", "")
-      if cookie_to_use:
-        status_box.write("🔑 正在使用手动传入的 Cookie 凭证进行鉴权...")
-      else:
-        status_box.write("🔑 正在自动校验/获取后台宝尊账号鉴权...")
-
-      api = _get_api(cookie_to_use)
-
-      status_box.write("正在上传图片到宝尊服务器...")
-      attachment_code = api.upload_image(
-          uploaded_file.getvalue(), uploaded_file.name
-      )
-
-      status_box.write(
-          f"正在提交智能扩图任务 (目标画布: {bg_w}x{bg_h}, 原图: {orig_w}x{orig_h})..."
-      )
-      record_code = api.submit_image_expand(
-          original_attachment_code=attachment_code,
-          top_distance=top_d,
-          bottom_distance=bottom_d,
-          left_distance=left_d,
-          right_distance=right_d,
-          background_weight=bg_w,
-          background_height=bg_h,
-          original_weight=orig_w,
-          original_height=orig_h,
-          generated_num=gen_num,
-      )
-
-      status_box.write("AI 正在渲染生成图片（正在实时查询进度，预估 1~2 分钟）...")
-      result_urls = api.get_image_expand_result(
-          record_code, poll_interval=3, timeout=180
-      )
-
+    api = _get_api(task["cookie"])
+    if api is None:
+      # 等待人工输入验证码（界面下方会显示输入框）
       status_box.update(
-          label="🎉 扩图生成完成！", state="complete", expanded=False
+          label="📩 验证码已发送到邮箱，自动读取超时，请在下方手动输入",
+          state="running",
       )
+    else:
+      _run_expand_task(status_box, task, api)
+      del st.session_state["baozun_task"]
 
-      st.subheader("3. 生成结果")
-      grid_cols = st.columns(len(result_urls))
-      for idx, url in enumerate(result_urls):
-        with grid_cols[idx]:
-          st.image(url, caption=f"方案 {idx + 1}", use_container_width=True)
-          st.markdown(
-              f"[点击下载图片]({url})", unsafe_allow_html=True
-          )
-
-    except Exception as e:
-      status_box.update(label=f"❌ 扩图失败: {str(e)}", state="error")
+  # ============ 手动验证码输入 ============
+  pending_api = st.session_state.get("baozun_otp_pending_api")
+  if pending_api is not None:
+    st.warning(
+        "验证码邮件已发送到公司邮箱（自动转发到 QQ）。自动读取超时，"
+        "请查看手机/邮箱里的验证码并手动输入："
+    )
+    code = st.text_input("6 位验证码", key="baozun_manual_otp", max_chars=6)
+    if st.button("✅ 提交验证码并继续", type="primary", key="baozun_otp_submit"):
+      code = (code or "").strip()
+      if not (len(code) == 6 and code.isdigit()):
+        st.error("请输入 6 位数字验证码")
+      else:
+        try:
+          pending_api.complete_login_with_otp(code)
+          # 登录完成，写入会话缓存，稍后 rerun 时直接复用
+          st.session_state["baozun_api_cache"] = {
+              "api": pending_api,
+              "cookie": (task or {}).get("cookie", ""),
+              "is_manual": bool((task or {}).get("cookie", "")),
+              "ts": _time.time(),
+          }
+          st.session_state.pop("baozun_otp_pending_api", None)
+          st.rerun()
+        except Exception as e:
+          st.error(f"验证码校验失败: {e}")
