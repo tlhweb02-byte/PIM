@@ -10,14 +10,6 @@ except ImportError:
   except ImportError:
     from baozun_api import BaozunExpandAPI
 
-try:
-  from .account_api import BaozunAccountAPI
-except ImportError:
-  try:
-    from modules.baozun_expand.account_api import BaozunAccountAPI
-  except ImportError:
-    from account_api import BaozunAccountAPI
-
 # 自动登录会话复用时长（秒）：期间内不重复登录、不重复发送验证码邮件
 _SESSION_TTL = 2 * 3600
 
@@ -107,51 +99,6 @@ def _run_expand_task(status_box, task, api):
 def render_ui():
   st.title("🎨 宝尊智能扩图 (ROSS)")
   st.caption("全自动智能扩图中台，自动维护鉴权并调用宝尊 ROSS 引擎扩展背景。")
-
-  # 手动 Cookie 备用通道
-  with st.expander(
-      "🔑 宝尊账号鉴权配置 (手动 Cookie 备用通道)", expanded=False
-  ):
-    st.markdown("""
-        **当邮件自动化发信延迟时，可在此粘贴宝尊 Cookie 作为备用通道：**
-        * **1 秒极速提取 Cookie 方法**：在已登录的 ROSS 网页按 `F12`，切换到 **Console（控制台）** 粘贴下方代码回车，Cookie 就会自动复制到剪贴板！
-        ```javascript
-        copy(document.cookie); alert("Cookie 已复制到剪贴板！");
-        ```
-        """)
-    manual_cookie = st.text_area(
-        "请粘贴 Cookie 字符串：",
-        value=st.session_state.get("baozun_cookie", ""),
-        placeholder="例如: SESSION=xxxx; UAAC=xxxx; ...",
-        help="为空时会自动使用后台账号邮件自动化登录",
-    )
-    if manual_cookie:
-      st.session_state["baozun_cookie"] = manual_cookie.strip()
-
-  # 邮箱读取诊断
-  with st.expander("🔍 诊断：测试 QQ 邮箱验证码读取", expanded=False):
-    if st.button("运行邮箱读取诊断", key="baozun_diag_btn"):
-      mgr = BaozunAccountAPI()
-      with st.spinner("正在连接 QQ 邮箱并读取最近邮件..."):
-        report = mgr.diagnose_mailbox()
-      if not report["ok"]:
-        st.error(f"IMAP 连接失败: {report['error']}")
-      else:
-        st.success("IMAP 连接成功")
-        st.write(
-            "**邮箱文件夹**: ",
-            ", ".join(report["folders"]) if report["folders"] else "无",
-        )
-        st.write("**收件箱最近邮件**:")
-        if report["emails"]:
-          for e in report["emails"]:
-            codes = "、".join(e["codes"]) if e["codes"] else "—"
-            st.write(
-                f"- [{e['age']}] {e['subject']} | 发件人: {e['sender']} "
-                f"| 6位数字: {codes}"
-            )
-        else:
-          st.write("(收件箱为空)")
 
   col_left, col_right = st.columns(2)
 
