@@ -1,11 +1,13 @@
 import base64
 import email
+import email.utils as email_utils
 import imaplib
 import json
 import os
 import re
 import time
 import requests
+from datetime import datetime, timezone
 
 # 加载项目根目录下的 .env 文件（敏感配置存放处，已被 .gitignore 忽略）
 try:
@@ -193,44 +195,10 @@ class BaozunAccountAPI:
         mail = imaplib.IMAP4_SSL(self.imap_server, 993)
         mail.login(self.qq_email, self.qq_auth_code)
         login_fail_count = 0
-        mail.select("INBOX")
-
-        _, search_data = mail.search(None, "ALL")
-        mail_ids = search_data[0].split()[-30:]
-
-        # 给每封候选邮件打分：主题/正文/发件人命中关键词越强越优先
-        best_score, best_code = 0, ""
-        for mail_id in reversed(mail_ids):
-          _, msg_data = mail.fetch(mail_id, "(RFC822)")
-          for response_part in msg_data:
-            if not isinstance(response_part, tuple):
-              continue
-            msg = email.message_from_bytes(response_part)
-            subject = str(msg.get("Subject", "") or "")
-            sender = str(msg.get("From", "") or "")
-            body = self._extract_body(msg)
-
-            combined = subject + " " + body
-            score = 0
-            if re.search(
-                r"验证码|UAC|宝尊|baozun|verification|登录", subject, re.I
-            ):
-              score += 3
-            if re.search(
-                r"验证码|UAC|宝尊|baozun|verification|登录", body, re.I
-            ):
-              score += 2
-            if "baozun" in sender.lower():
-              score += 2
-            if score == 0:
-              continue
-            codes = re.findall(r"(?<!\d)\d{6}(?!\d)", combined)
-            if codes and score > best_score:
-              best_score, best_code = score, codes[0]
-
+        code = self._scan_mailbox_for_otp(mail)
         mail.logout()
-        if best_code:
-          return best_code
+        if code:
+          return code
       except imaplib.IMAP4.error as e:
         login_fail_count += 1
         print(f"QQ邮箱IMAP错误: {e}")
@@ -247,6 +215,88 @@ class BaozunAccountAPI:
       time.sleep(poll_interval)
 
     return ""
+
+  def _scan_mailbox_for_otp(self, mail) -> str:
+    """扫描收件箱及其它文件夹，按「到达时间优先 + 关键词加权」找验证码"""
+    folders = ["INBOX"]
+    try:
+      _, raw_list = mail.list()
+      for line in raw_list:
+        m = re.search(rb'"([^"]*)"\s*$', line)
+        if m:
+          name = m.group(1).decode("ascii", errors="ignore")
+          if name and name not in folders:
+            folders.append(name)
+    except Exception:
+      pass
+
+    best_code, best_score = "", -1
+    for folder in folders:
+      try:
+        status, _ = mail.select(folder)
+        if status != "OK":
+          continue
+        _, search_data = mail.search(None, "ALL")
+        mail_ids = search_data[0].split()[-40:]
+
+        for mail_id in reversed(mail_ids):
+          _, msg_data = mail.fetch(mail_id, "(RFC822)")
+          for response_part in msg_data:
+            if not isinstance(response_part, tuple):
+              continue
+            msg = email.message_from_bytes(response_part)
+            code, score = self._score_email_for_otp(msg)
+            if code and score > best_score:
+              best_code, best_score = code, score
+      except Exception:
+        continue
+
+    if not best_code:
+      print("[验证码扫描] 未在邮箱中找到 6 位验证码")
+    return best_code
+
+  def _score_email_for_otp(self, msg):
+    """给邮件打分：到达时间越新分越高，关键词/发件人命中额外加分。
+    返回 (验证码, 分数)；无 6 位验证码则返回 ('', 0)"""
+    subject = str(msg.get("Subject", "") or "")
+    sender = str(msg.get("From", "") or "")
+    body = self._extract_body(msg)
+    combined = subject + " " + body
+    codes = re.findall(r"(?<!\d)\d{6}(?!\d)", combined)
+    if not codes:
+      return "", 0
+
+    score = 0
+    # 关键词（验证码类 + 宝尊品牌）
+    keywords = (
+        r"验证码|动态口令|安全码|校验码|登录码|UAC|宝尊|baozun"
+        r"|verification|security code|one-?time|登录"
+    )
+    if re.search(keywords, subject, re.I):
+      score += 8
+    if re.search(keywords, body, re.I):
+      score += 5
+    if "baozun" in sender.lower():
+      score += 5
+
+    # 到达时间新鲜度（最强信号：验证码邮件刚到达）
+    try:
+      dt = email_utils.parsedate_to_datetime(msg.get("Date", "") or "")
+      if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+      age = (datetime.now(timezone.utc) - dt).total_seconds()
+      if 0 <= age < 300:
+        score += 30      # 5 分钟内到达
+      elif age < 900:
+        score += 20      # 15 分钟内
+      elif age < 3600:
+        score += 8       # 1 小时内
+      elif age < 86400:
+        score += 2       # 24 小时内
+    except Exception:
+      pass
+
+    return codes[0], score
 
   def _fetch_ticket(self, session) -> str:
     """获取租户访问票据 token；需要二次认证时返回空串"""
