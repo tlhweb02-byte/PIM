@@ -1,0 +1,9 @@
+streamlit
+pandas
+openpyxl
+pillow
+tinify
+gspread
+google-auth
+scrapling
+python-dotenv

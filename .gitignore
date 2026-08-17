@@ -1,0 +1,14 @@
+# ===== 密钥与敏感配置（严禁提交到 GitHub）=====
+.env
+.env.*
+!.env.example
+
+# 运行时缓存（内含登录 Cookie 等敏感会话信息，切勿公开）
+modules/baozun_expand/baozun_cookie_cache.json
+
+# Python 缓存与虚拟环境
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/

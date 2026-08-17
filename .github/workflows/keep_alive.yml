@@ -1,0 +1,16 @@
+name: Keep Streamlit Alive
+
+on:
+  schedule:
+    # 每 12 小时触发一次（UTC 时间 0 点和 12 点）
+    - cron: '0 */12 * * *'
+  # 支持在 GitHub 页面手动点击按钮触发测试
+  workflow_dispatch:
+
+jobs:
+  ping-app:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Streamlit App
+        run: |
+          curl -s --head https://excel-convert-tool-ifqlectuftdn3jjc4pnzpf.streamlit.app/ | head -n 1
