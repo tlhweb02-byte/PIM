@@ -24,6 +24,7 @@ except ImportError:
     SHEETS_OK = False
 
 # ---------- 可配置项（可通过 .env / Streamlit Secrets 覆盖） ----------
+AUTH_VERSION = "1.1.0"           # 账号系统版本（侧边栏显示，用于确认部署是否成功）
 DEFAULT_FREE_QUOTA = 10          # 新用户免费体验次数
 PBKDF2_ITERATIONS = 120000       # 密码哈希迭代次数（越慢越难被暴力破解）
 
@@ -42,7 +43,12 @@ def _get_secret(name: str, default: str = "") -> str:
     if val:
         return val
     try:
-        val = st.secrets.get(name, "")
+        if hasattr(st.secrets, "get"):
+            val = st.secrets.get(name, "")
+        elif name in st.secrets:
+            val = st.secrets[name]
+        else:
+            val = ""
         if isinstance(val, str):
             return val.strip()
     except Exception:
@@ -204,8 +210,10 @@ def register_user(username: str, password: str):
     ]
     try:
         ws.append_row(row)
+        print(f"[auth] 注册成功: [{username}]")
         return True, f"注册成功！已自动登录，赠送 {_free_quota()} 次免费体验"
     except Exception as e:
+        print(f"[auth] 注册失败(写入表格): {e}")
         return False, f"写入账号表失败: {e}"
 
 
@@ -214,13 +222,21 @@ def login_user(username: str, password: str):
     username = _normalize_username(username)
     rec, err = get_user_record(username)
     if err:
+        print(f"[auth] 登录失败(读表错误): {err}")
         return False, err, None
     if rec is None:
+        print(f"[auth] 登录失败: 账号不存在 [{username}]")
         return False, "用户名或密码不正确", None
 
     salt = str(rec.get("salt", "") or "")
     pwd_hash = str(rec.get("password_hash", "") or "")
-    if not salt or not pwd_hash or _hash_password(password, salt) != pwd_hash:
+    try:
+        pwd_ok = bool(salt and pwd_hash) and _hash_password(password, salt) == pwd_hash
+    except (ValueError, TypeError) as e:
+        print(f"[auth] 账号 {username} 数据异常(盐值/哈希格式错误): {e}")
+        return False, "账号数据异常，请联系管理员重新注册", None
+    if not pwd_ok:
+        print(f"[auth] 登录失败: 密码不正确 [{username}]")
         return False, "用户名或密码不正确", None
 
     # 记录最后登录时间（失败不影响登录）
@@ -235,6 +251,7 @@ def login_user(username: str, password: str):
     except Exception:
         pass
 
+    print(f"[auth] 登录成功: [{username}]")
     return True, "登录成功", rec
 
 
@@ -252,6 +269,47 @@ def is_logged_in() -> bool:
 
 def logout():
     st.session_state.pop("auth_user", None)
+
+
+def diagnose_auth(username: str = "", password: str = ""):
+    """诊断账号系统状态（只读，不修改任何数据），返回 dict。
+    用于排查"登录没反应"类问题：表格是否连通、账号是否存在、密码是否匹配"""
+    info = {
+        "sheet_ok": False,
+        "sheet_error": "",
+        "account_count": 0,
+        "username_exists": False,
+        "password_ok": False,
+    }
+    ws, err = _get_worksheet()
+    if ws is None:
+        info["sheet_error"] = err or "无法连接 Google 表格"
+        return info
+    info["sheet_ok"] = True
+    try:
+        records = ws.get_all_records()
+    except Exception as e:
+        info["sheet_error"] = f"读取账号表失败: {e}"
+        return info
+    info["account_count"] = len(records)
+
+    uname = _normalize_username(username)
+    rec = None
+    for r in records:
+        if _normalize_username(str(r.get("username", ""))) == uname:
+            rec = r
+            break
+    info["username_exists"] = rec is not None
+    if rec is not None and password:
+        try:
+            salt = str(rec.get("salt", "") or "")
+            pwd_hash = str(rec.get("password_hash", "") or "")
+            info["password_ok"] = bool(
+                salt and pwd_hash and _hash_password(password, salt) == pwd_hash
+            )
+        except Exception:
+            info["password_ok"] = False
+    return info
 
 
 # ---------------------------------------------------------------------------

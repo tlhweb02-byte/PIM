@@ -29,6 +29,8 @@ def render_auth_panel():
             )
         if st.sidebar.button("🚪 退出登录", use_container_width=True):
             mod_auth.logout()
+            # 退出后把账号操作切回「登录」，避免下次停留在注册模式造成困惑
+            st.session_state["auth_panel_mode"] = "登录"
             st.rerun()
         return
 
@@ -39,6 +41,7 @@ def render_auth_panel():
         label_visibility="collapsed",
     )
 
+    auth_password2 = ""  # 注册模式下才存在，先兜底初始化防止残留状态报错
     with st.sidebar.form("auth_form", clear_on_submit=True):
         auth_username = st.text_input("用户名", key="auth_username")
         auth_password = st.text_input("密码", type="password", key="auth_password")
@@ -53,20 +56,44 @@ def render_auth_panel():
         )
 
     if submitted:
-        if auth_mode == "登录":
-            ok, msg, _ = mod_auth.login_user(auth_username, auth_password)
-        else:
-            if auth_password != auth_password2:
-                st.sidebar.error("两次输入的密码不一致")
-                return
-            ok, msg = mod_auth.register_user(auth_username, auth_password)
+        try:
+            if auth_mode == "登录":
+                ok, msg, _ = mod_auth.login_user(auth_username, auth_password)
+            else:
+                if auth_password != auth_password2:
+                    st.sidebar.error("两次输入的密码不一致")
+                    return
+                ok, msg = mod_auth.register_user(auth_username, auth_password)
+                if ok:
+                    mod_auth.set_logged_in(auth_username)
             if ok:
-                mod_auth.set_logged_in(auth_username)
-        if ok:
-            st.sidebar.success(msg)
-            st.rerun()
-        else:
-            st.sidebar.error(msg)
+                st.sidebar.success(msg)
+                try:
+                    st.toast("✅ " + msg)
+                except Exception:
+                    pass
+                st.session_state["auth_panel_mode"] = "登录"
+                st.rerun()
+            else:
+                st.sidebar.error(msg)
+        except Exception as e:
+            st.sidebar.error(f"操作异常：{type(e).__name__}: {e}")
+
+    # 诊断面板：登录没反应时点这里查看具体原因
+    with st.sidebar.expander("🔧 登录没反应？点这里诊断", expanded=False):
+        st.caption("输入上面的用户名/密码后点「运行诊断」，可查看每一步是否正常")
+        if st.button("🔍 运行诊断", key="auth_diag_btn"):
+            diag = mod_auth.diagnose_auth(auth_username, auth_password)
+            if diag["sheet_ok"]:
+                st.write(f"✅ Google 表格连接正常（账号表共 {diag['account_count']} 条记录）")
+            else:
+                st.write(f"❌ Google 表格连接失败：{diag['sheet_error']}")
+            uname = (auth_username or "").strip().lower()
+            st.write(f"账号「{uname}」：{'✅ 存在' if diag['username_exists'] else '❌ 不存在（注意：用户名会自动转为小写）'}")
+            if diag["username_exists"]:
+                st.write(f"密码校验：{'✅ 正确' if diag['password_ok'] else '❌ 不正确'}")
+
+    st.sidebar.caption(f"账号系统 v{mod_auth.AUTH_VERSION}")
 
 
 render_auth_panel()
