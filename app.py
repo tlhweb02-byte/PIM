@@ -2,6 +2,7 @@ import streamlit as st
 
 # 导入 modules 文件夹下的各个独立模块
 from modules import mod_07_excel, mod_05_compress, mod_fonts, mod_stats
+from modules.baozun_expand import app as mod_baozun_expand
 
 # 页面基础配置
 st.set_page_config(
@@ -17,6 +18,7 @@ nav_choice = st.sidebar.radio(
     [
         "📊 运营表格一键智能转化",
         "🖼️ 智能图片压缩与降维",
+        "🎨 宝尊智能扩图 (ROSS)",
         "🔤 官方品牌字体在线下载",
         "🏆 团队提效仪表盘"
     ]
@@ -28,6 +30,9 @@ if nav_choice == "📊 运营表格一键智能转化":
 
 elif nav_choice == "🖼️ 智能图片压缩与降维":
     mod_05_compress.render_ui()
+
+elif nav_choice == "🎨 宝尊智能扩图 (ROSS)":
+    mod_baozun_expand.render_ui()
 
 elif nav_choice == "🔤 官方品牌字体在线下载":
     mod_fonts.render_ui()
