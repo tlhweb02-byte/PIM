@@ -120,14 +120,15 @@ def render_ui():
   remaining = mod_auth.get_remaining(username)
   if remaining == 0:
     st.error(
-        "😢 **免费试用次数已用完**。请联系管理员增加次数后再来使用。"
+        "😢 **次数已用完**。请到左侧「💰 次数充值中心」充值获取次数，"
+        "或联系管理员。"
     )
     return
 
   if remaining < 0:
     quota_text = "♾️ 不限次数（管理员）"
   else:
-    quota_text = f"剩余免费次数：**{remaining}** 次（成功生成 1 次扣 1 次）"
+    quota_text = f"剩余次数：**{remaining}** 次（成功生成 1 次扣 1 次）"
   st.info(f"👤 当前用户：**{username}** ｜ 🎨 {quota_text}")
 
   col_left, col_right = st.columns(2)

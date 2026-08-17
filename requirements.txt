@@ -7,3 +7,4 @@ gspread
 google-auth
 scrapling
 python-dotenv
+qrcode

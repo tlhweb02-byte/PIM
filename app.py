@@ -1,7 +1,7 @@
 import streamlit as st
 
 # 导入 modules 文件夹下的各个独立模块
-from modules import mod_07_excel, mod_05_compress, mod_fonts, mod_stats, mod_auth
+from modules import mod_07_excel, mod_05_compress, mod_fonts, mod_stats, mod_auth, mod_recharge
 from modules.baozun_expand import app as mod_baozun_expand
 
 # 页面基础配置
@@ -25,8 +25,10 @@ def render_auth_panel():
         else:
             remaining = mod_auth.get_remaining(username)
             st.sidebar.caption(
-                f"🎨 宝尊扩图剩余免费次数：**{remaining}** 次"
+                f"🎨 宝尊扩图剩余次数：**{remaining}** 次"
             )
+            if remaining <= 0:
+                st.sidebar.caption("💡 次数用尽？去「💰 充值中心」充值")
         if st.sidebar.button("🚪 退出登录", use_container_width=True):
             mod_auth.logout()
             # 退出后把账号操作切回「登录」，避免下次停留在注册模式造成困惑
@@ -111,6 +113,7 @@ nav_choice = st.sidebar.radio(
         "📊 运营表格一键智能转化",
         "🖼️ 智能图片压缩与降维",
         "🎨 宝尊智能扩图 (ROSS)",
+        "💰 次数充值中心",
         "🔤 官方品牌字体在线下载",
         "🏆 团队提效仪表盘"
     ]
@@ -132,6 +135,15 @@ elif nav_choice == "🎨 宝尊智能扩图 (ROSS)":
             "🔒 **宝尊智能扩图需要使用公司付费账号，仅对注册用户开放**\n\n"
             "新用户注册即赠送 **10 次免费体验**，请先在左侧「用户中心」"
             "登录或注册。"
+        )
+
+elif nav_choice == "💰 次数充值中心":
+    # 充值需要登录（确认到账后次数加到登录账号上）
+    if mod_auth.is_logged_in():
+        mod_recharge.render_ui()
+    else:
+        st.warning(
+            "🔒 充值次数会加到登录账号上，请先在左侧「用户中心」登录。"
         )
 
 elif nav_choice == "🔤 官方品牌字体在线下载":
