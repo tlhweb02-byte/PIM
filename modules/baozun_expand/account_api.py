@@ -184,7 +184,7 @@ class BaozunAccountAPI:
     return body
 
   def fetch_latest_email_otp(
-      self, timeout: int = 120, poll_interval: int = 3
+      self, timeout: int = 180, poll_interval: int = 3
   ) -> str:
     """从 QQ 邮箱提取宝尊发来的 6 位验证码（公司邮箱自动转发到 QQ）"""
     start_time = time.time()
@@ -318,7 +318,7 @@ class BaozunAccountAPI:
     raise ValueError(f"获取宝尊访问票据失败: {resp.get('message')}")
 
   def login_full(
-      self, otp_code: str = "", otp_timeout: int = 120
+      self, otp_code: str = "", otp_timeout: int = 180
   ) -> dict:
     """完整 UAAC 登录流程（已按真实接口验证）：
     1) RSA 公钥加密密码 → 密码登录
@@ -413,6 +413,66 @@ class BaozunAccountAPI:
         "tenant": self.tenant,
         "appkey": self.appkey,
     }
+
+  def diagnose_mailbox(self) -> dict:
+    """诊断 QQ 邮箱读取：返回文件夹列表与最近邮件，用于排查验证码读取失败"""
+    result = {"ok": False, "error": "", "folders": [], "emails": []}
+    try:
+      mail = imaplib.IMAP4_SSL(self.imap_server, 993)
+      mail.login(self.qq_email, self.qq_auth_code)
+      result["ok"] = True
+
+      try:
+        _, raw_list = mail.list()
+        for line in raw_list:
+          m = re.search(rb'"([^"]*)"\s*$', line)
+          if m:
+            result["folders"].append(
+                m.group(1).decode("ascii", errors="ignore")
+            )
+      except Exception as e:
+        result["folders"].append(f"(列表失败: {e})")
+
+      try:
+        mail.select("INBOX")
+        _, data = mail.search(None, "ALL")
+        ids = data[0].split()[-10:]
+        for mid in reversed(ids):
+          _, msg_data = mail.fetch(mid, "(RFC822)")
+          for rp in msg_data:
+            if not isinstance(rp, tuple):
+              continue
+            msg = email.message_from_bytes(rp)
+            subject = str(msg.get("Subject", "") or "")
+            sender = str(msg.get("From", "") or "")
+            codes = re.findall(
+                r"(?<!\d)\d{6}(?!\d)", subject + " " + self._extract_body(msg)
+            )
+            age = ""
+            try:
+              dt = email_utils.parsedate_to_datetime(
+                  msg.get("Date", "") or ""
+              )
+              if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+              age = f"{int((datetime.now(timezone.utc) - dt).total_seconds())}秒前"
+            except Exception:
+              pass
+            result["emails"].append({
+                "subject": subject[:60],
+                "sender": sender[:50],
+                "age": age,
+                "codes": codes[:3],
+            })
+      except Exception as e:
+        result["emails"].append({
+            "subject": f"(收件箱读取失败: {e})", "sender": "", "age": "", "codes": []
+        })
+
+      mail.logout()
+    except Exception as e:
+      result["error"] = str(e)
+    return result
 
   def complete_login_with_otp(
       self, otp_code: str, session, tenant: str = "", appkey: str = ""
