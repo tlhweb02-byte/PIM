@@ -35,6 +35,7 @@ def _get_secret(name: str, default: str = "") -> str:
   1) 环境变量（本地 .env 经 load_dotenv 注入 / 云端平台注入）
   2) Streamlit st.secrets（Community Cloud 的密钥管理）
   3) 默认值
+  只有取到非空值才返回；Secrets 未配置/为空时回落到 default
   """
   val = os.getenv(name, "").strip()
   if val:
@@ -43,7 +44,9 @@ def _get_secret(name: str, default: str = "") -> str:
     import streamlit as st
     val = st.secrets.get(name, "")
     if isinstance(val, str):
-      return val.strip()
+      val = val.strip()
+      if val:
+        return val
   except Exception:
     pass
   return default

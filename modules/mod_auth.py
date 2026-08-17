@@ -26,7 +26,7 @@ except ImportError:
     SHEETS_OK = False
 
 # ---------- 可配置项（可通过 .env / Streamlit Secrets 覆盖） ----------
-AUTH_VERSION = "1.2.0"           # 账号系统版本（侧边栏显示，用于确认部署是否成功）
+AUTH_VERSION = "1.2.1"           # 账号系统版本（侧边栏显示，用于确认部署是否成功）
 DEFAULT_FREE_QUOTA = 10          # 新用户免费体验次数
 PBKDF2_ITERATIONS = 120000       # 密码哈希迭代次数（越慢越难被暴力破解）
 
@@ -54,7 +54,8 @@ USERNAME_RE = re.compile(r"^[\w\u4e00-\u9fa5-]{2,20}$")
 
 
 def _get_secret(name: str, default: str = "") -> str:
-    """按优先级读取配置：环境变量 -> Streamlit Secrets -> 默认值"""
+    """按优先级读取配置：环境变量 -> Streamlit Secrets -> 默认值。
+    只有取到非空值才返回；Secrets 未配置/为空时回落到 default"""
     val = os.getenv(name, "").strip()
     if val:
         return val
@@ -66,7 +67,9 @@ def _get_secret(name: str, default: str = "") -> str:
         else:
             val = ""
         if isinstance(val, str):
-            return val.strip()
+            val = val.strip()
+            if val:
+                return val
     except Exception:
         pass
     return default
