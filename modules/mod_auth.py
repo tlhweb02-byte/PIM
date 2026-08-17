@@ -26,7 +26,7 @@ except ImportError:
     SHEETS_OK = False
 
 # ---------- 可配置项（可通过 .env / Streamlit Secrets 覆盖） ----------
-AUTH_VERSION = "1.2.2"           # 账号系统版本（侧边栏显示，用于确认部署是否成功）
+AUTH_VERSION = "1.2.3"           # 账号系统版本（侧边栏显示，用于确认部署是否成功）
 DEFAULT_FREE_QUOTA = 10          # 新用户免费体验次数
 PBKDF2_ITERATIONS = 120000       # 密码哈希迭代次数（越慢越难被暴力破解）
 
@@ -170,9 +170,9 @@ def _get_order_worksheet():
         return None, f"访问 Google 表格失败: {e}"
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def _read_account_records():
-    """读取用户账号表全部记录（15 秒缓存）；返回 (records, err)"""
+    """读取用户账号表全部记录（30 秒缓存）；返回 (records, err)"""
     ws, err = _get_worksheet()
     if ws is None:
         _read_account_records.clear()
@@ -184,9 +184,9 @@ def _read_account_records():
         return [], f"读取账号表失败: {e}"
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def _read_order_records():
-    """读取充值订单表全部记录（15 秒缓存）；返回 (records, err)"""
+    """读取充值订单表全部记录（30 秒缓存）；返回 (records, err)"""
     ws, err = _get_order_worksheet()
     if ws is None:
         _read_order_records.clear()
