@@ -2,8 +2,8 @@ name: Keep Streamlit Alive
 
 on:
   schedule:
-    # 每 12 小时触发一次（UTC 时间 0 点和 12 点）
-    - cron: '0 */12 * * *'
+    # 每 5 分钟 ping 一次（GitHub Actions 最短间隔），避免免费版应用空闲休眠
+    - cron: '*/5 * * * *'
   # 支持在 GitHub 页面手动点击按钮触发测试
   workflow_dispatch:
 
@@ -11,6 +11,10 @@ jobs:
   ping-app:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Streamlit App
+      - name: Ping pim999 Streamlit App
         run: |
-          curl -s --head https://excel-convert-tool-ifqlectuftdn3jjc4pnzpf.streamlit.app/ | head -n 1
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 https://pim999.streamlit.app/)
+          echo "HTTP status: $code"
+          if [ "$code" != "200" ]; then
+            echo "::warning::Ping 返回状态码 $code，应用可能仍在唤醒中或出现异常"
+          fi
