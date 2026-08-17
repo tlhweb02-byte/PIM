@@ -200,9 +200,10 @@ class BaozunAccountAPI:
     return codes[0] if codes else ""
 
   def fetch_latest_email_otp(
-      self, timeout: int = 180, poll_interval: int = 3
+      self, timeout: int = 180, poll_interval: int = 3, after_ts: float = None
   ) -> str:
-    """从 QQ 邮箱提取宝尊发来的 6 位验证码（公司邮箱自动转发到 QQ）"""
+    """从 QQ 邮箱提取宝尊发来的 6 位验证码（公司邮箱自动转发到 QQ）。
+    after_ts: 只认该时间戳之后到达的邮件（避免抓到历史验证码）"""
     start_time = time.time()
     login_fail_count = 0
 
@@ -211,7 +212,7 @@ class BaozunAccountAPI:
         mail = imaplib.IMAP4_SSL(self.imap_server, 993)
         mail.login(self.qq_email, self.qq_auth_code)
         login_fail_count = 0
-        code = self._scan_mailbox_for_otp(mail)
+        code = self._scan_mailbox_for_otp(mail, after_ts=after_ts)
         mail.logout()
         if code:
           return code
@@ -232,7 +233,7 @@ class BaozunAccountAPI:
 
     return ""
 
-  def _scan_mailbox_for_otp(self, mail) -> str:
+  def _scan_mailbox_for_otp(self, mail, after_ts: float = None) -> str:
     """扫描收件箱及其它文件夹，按「到达时间优先 + 关键词加权」找验证码"""
     folders = ["INBOX"]
     try:
@@ -261,18 +262,19 @@ class BaozunAccountAPI:
             if not isinstance(response_part, tuple):
               continue
             msg = email.message_from_bytes(response_part[1])
-            code, score = self._score_email_for_otp(msg)
+            code, score = self._score_email_for_otp(msg, after_ts=after_ts)
             if code and score > best_score:
               best_code, best_score = code, score
       except Exception:
         continue
 
     if not best_code:
-      print("[验证码扫描] 未在邮箱中找到 6 位验证码")
+      print("[验证码扫描] 未在邮箱中找到验证码")
     return best_code
 
-  def _score_email_for_otp(self, msg):
+  def _score_email_for_otp(self, msg, after_ts: float = None):
     """给邮件打分：到达时间越新分越高，关键词/发件人命中额外加分。
+    after_ts: 过滤该时间戳之前的邮件（历史验证码）。
     返回 (验证码, 分数)；无 6 位验证码则返回 ('', 0)"""
     subject = str(msg.get("Subject", "") or "")
     sender = str(msg.get("From", "") or "")
@@ -300,6 +302,10 @@ class BaozunAccountAPI:
       dt = email_utils.parsedate_to_datetime(msg.get("Date", "") or "")
       if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
+      dt_ts = dt.timestamp()
+      # 只认发码之后到达的邮件（容忍 60 秒时钟偏差）
+      if after_ts is not None and dt_ts < after_ts - 60:
+        return "", 0
       age = (datetime.now(timezone.utc) - dt).total_seconds()
       if 0 <= age < 300:
         score += 30      # 5 分钟内到达
@@ -384,6 +390,7 @@ class BaozunAccountAPI:
 
     # 4. 需要二次认证：邮件验证码
     if not ticket:
+      send_ts = time.time()
       send_resp = session.get(
           f"{UAAC_BASE}/api/uaac/account/twoFactor/sendCode",
           params={"type": "email", "saasTenantCode": self.tenant},
@@ -396,7 +403,9 @@ class BaozunAccountAPI:
             f"(可能发送过于频繁，请稍后再试)"
         )
 
-      otp = otp_code or self.fetch_latest_email_otp(timeout=otp_timeout)
+      otp = otp_code or self.fetch_latest_email_otp(
+          timeout=otp_timeout, after_ts=send_ts
+      )
       if not otp:
         raise OtpRequiredError(
             "验证码已发送但自动读取超时，请在界面上手动输入邮箱收到的验证码",

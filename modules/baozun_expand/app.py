@@ -229,16 +229,24 @@ def render_ui():
   task = st.session_state.get("baozun_task")
   if task:
     status_box = st.status("正在处理扩图任务...", expanded=True)
-    api = _get_api(task["cookie"])
-    if api is None:
-      # 等待人工输入验证码（界面下方会显示输入框）
-      status_box.update(
-          label="📩 验证码已发送到邮箱，自动读取超时，请在下方手动输入",
-          state="running",
-      )
-    else:
-      _run_expand_task(status_box, task, api)
-      del st.session_state["baozun_task"]
+    api = None
+    failed = False
+    try:
+      api = _get_api(task["cookie"])
+    except Exception as e:
+      status_box.update(label=f"❌ 扩图失败: {str(e)}", state="error")
+      st.session_state.pop("baozun_task", None)
+      failed = True
+    if not failed:
+      if api is None:
+        # 等待人工输入验证码（界面下方会显示输入框）
+        status_box.update(
+            label="📩 验证码已发送到邮箱，自动读取超时，请在下方手动输入",
+            state="running",
+        )
+      else:
+        _run_expand_task(status_box, task, api)
+        del st.session_state["baozun_task"]
 
   # ============ 手动验证码输入 ============
   pending_api = st.session_state.get("baozun_otp_pending_api")
