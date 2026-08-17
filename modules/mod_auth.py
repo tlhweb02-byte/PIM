@@ -26,7 +26,7 @@ except ImportError:
     SHEETS_OK = False
 
 # ---------- 可配置项（可通过 .env / Streamlit Secrets 覆盖） ----------
-AUTH_VERSION = "1.2.1"           # 账号系统版本（侧边栏显示，用于确认部署是否成功）
+AUTH_VERSION = "1.2.2"           # 账号系统版本（侧边栏显示，用于确认部署是否成功）
 DEFAULT_FREE_QUOTA = 10          # 新用户免费体验次数
 PBKDF2_ITERATIONS = 120000       # 密码哈希迭代次数（越慢越难被暴力破解）
 
@@ -97,17 +97,29 @@ def is_admin(username: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Google 表格存取
+# Google 表格存取（带缓存，避免超 Sheets API 读取配额 429）
+#  - 打开表格(元数据) 用 st.cache_resource 进程级缓存
+#  - 读取数据 用 st.cache_data(ttl=15) 缓存，写入后手动 clear()
 # ---------------------------------------------------------------------------
+@st.cache_resource
+def _get_spreadsheet():
+    """缓存已打开的 Spreadsheet 对象（避免每次 rerun 都调用 Drive/Sheets 元数据接口）。
+    打开失败时抛异常（st.cache_resource 不缓存异常，下次自动重试）"""
+    client, err = mod_stats.get_gspread_client()
+    if client is None:
+        raise RuntimeError(err or "Google 表格客户端不可用")
+    return client.open(mod_stats.SPREADSHEET_NAME)
+
+
 def _get_worksheet():
     """打开「用户账号」工作表，不存在则自动创建；返回 (ws, err)"""
     if not SHEETS_OK:
         return None, "缺少 gspread 依赖，请检查 requirements.txt"
-    client, err = mod_stats.get_gspread_client()
-    if client is None:
-        return None, err or "Google 表格客户端不可用"
     try:
-        sh = client.open(mod_stats.SPREADSHEET_NAME)
+        sh = _get_spreadsheet()
+    except Exception as e:
+        return None, f"访问 Google 表格失败: {e}"
+    try:
         try:
             ws = sh.worksheet(WORKSHEET_TITLE)
         except gspread.exceptions.WorksheetNotFound:
@@ -133,11 +145,11 @@ def _get_order_worksheet():
     """打开「充值订单」工作表，不存在则自动创建；返回 (ws, err)"""
     if not SHEETS_OK:
         return None, "缺少 gspread 依赖，请检查 requirements.txt"
-    client, err = mod_stats.get_gspread_client()
-    if client is None:
-        return None, err or "Google 表格客户端不可用"
     try:
-        sh = client.open(mod_stats.SPREADSHEET_NAME)
+        sh = _get_spreadsheet()
+    except Exception as e:
+        return None, f"访问 Google 表格失败: {e}"
+    try:
         try:
             ws = sh.worksheet(ORDER_WORKSHEET_TITLE)
         except gspread.exceptions.WorksheetNotFound:
@@ -158,6 +170,34 @@ def _get_order_worksheet():
         return None, f"访问 Google 表格失败: {e}"
 
 
+@st.cache_data(ttl=15, show_spinner=False)
+def _read_account_records():
+    """读取用户账号表全部记录（15 秒缓存）；返回 (records, err)"""
+    ws, err = _get_worksheet()
+    if ws is None:
+        _read_account_records.clear()
+        return [], err or "账号表不可用"
+    try:
+        return ws.get_all_records(), None
+    except Exception as e:
+        _read_account_records.clear()  # 失败结果不缓存，下次重试
+        return [], f"读取账号表失败: {e}"
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def _read_order_records():
+    """读取充值订单表全部记录（15 秒缓存）；返回 (records, err)"""
+    ws, err = _get_order_worksheet()
+    if ws is None:
+        _read_order_records.clear()
+        return [], err or "订单表不可用"
+    try:
+        return ws.get_all_records(), None
+    except Exception as e:
+        _read_order_records.clear()
+        return [], f"读取订单表失败: {e}"
+
+
 def _normalize_username(username: str) -> str:
     return (username or "").strip().lower()
 
@@ -165,13 +205,9 @@ def _normalize_username(username: str) -> str:
 def get_user_record(username: str):
     """按用户名查账号记录（含 used_count 等）；不存在返回 (None, None)"""
     username = _normalize_username(username)
-    ws, err = _get_worksheet()
-    if ws is None:
+    records, err = _read_account_records()
+    if err:
         return None, err
-    try:
-        records = ws.get_all_records()
-    except Exception as e:
-        return None, f"读取账号表失败: {e}"
     for r in records:
         if _normalize_username(str(r.get("username", ""))) == username:
             return r, None
@@ -180,9 +216,8 @@ def get_user_record(username: str):
 
 def _find_row(ws, username: str):
     """返回账号所在行号（含表头为第 1 行）；未找到返回 None"""
-    try:
-        records = ws.get_all_records()
-    except Exception:
+    records, err = _read_account_records()
+    if err:
         return None
     for i, r in enumerate(records):
         if _normalize_username(str(r.get("username", ""))) == username:
@@ -258,6 +293,7 @@ def register_user(username: str, password: str):
     ]
     try:
         ws.append_row(row)
+        _read_account_records.clear()  # 新账号入表，刷新缓存
         print(f"[auth] 注册成功: [{username}]")
         return True, f"注册成功！已自动登录，赠送 {_free_quota()} 次免费体验"
     except Exception as e:
@@ -296,6 +332,7 @@ def login_user(username: str, password: str):
                 ws.update_cell(
                     row, 6, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 )
+                _read_account_records.clear()
     except Exception:
         pass
 
@@ -329,16 +366,11 @@ def diagnose_auth(username: str = "", password: str = ""):
         "username_exists": False,
         "password_ok": False,
     }
-    ws, err = _get_worksheet()
-    if ws is None:
-        info["sheet_error"] = err or "无法连接 Google 表格"
+    records, err = _read_account_records()
+    if err:
+        info["sheet_error"] = err or "读取账号表失败"
         return info
     info["sheet_ok"] = True
-    try:
-        records = ws.get_all_records()
-    except Exception as e:
-        info["sheet_error"] = f"读取账号表失败: {e}"
-        return info
     info["account_count"] = len(records)
 
     uname = _normalize_username(username)
@@ -410,6 +442,7 @@ def consume_quota(username: str):
             return False, "用户不存在"
         new_used = get_used_count(username) + 1
         ws.update_cell(row, 5, new_used)
+        _read_account_records.clear()  # 已用次数变化，刷新缓存
         return True, ""
     except Exception as e:
         return False, f"扣减次数失败: {e}"
@@ -460,10 +493,9 @@ def create_recharge_order(username: str, amount_yuan, quota, tx_id: str):
     ws, err = _get_order_worksheet()
     if ws is None:
         return False, err or "订单表不可用", ""
-    try:
-        records = ws.get_all_records()
-    except Exception as e:
-        return False, f"读取订单表失败: {e}", ""
+    records, rerr = _read_order_records()
+    if rerr:
+        return False, rerr, ""
     for r in records:
         if str(r.get("tx_id", "")).strip() == tx_id:
             return False, "该交易单号已提交过，请勿重复提交", ""
@@ -477,6 +509,7 @@ def create_recharge_order(username: str, amount_yuan, quota, tx_id: str):
     ]
     try:
         ws.append_row(row)
+        _read_order_records.clear()  # 新订单入表，刷新缓存
         print(f"[recharge] 新订单: {order_id} 用户[{username}] ¥{amount}/{qty}次 单号{tx_id}")
         return True, f"订单提交成功！订单号：{order_id}，等待管理员确认后到账", order_id
     except Exception as e:
@@ -486,13 +519,9 @@ def create_recharge_order(username: str, amount_yuan, quota, tx_id: str):
 
 def get_orders(username: str = "", status: str = "", limit: int = 100):
     """查询订单；可按用户名/状态过滤，新的在前；返回 (list, err)"""
-    ws, err = _get_order_worksheet()
-    if ws is None:
-        return [], err or "订单表不可用"
-    try:
-        records = ws.get_all_records()
-    except Exception as e:
-        return [], f"读取订单表失败: {e}"
+    records, err = _read_order_records()
+    if err:
+        return [], err
     out = []
     for r in records:
         if username and _normalize_username(str(r.get("username", ""))) != _normalize_username(username):
@@ -521,10 +550,9 @@ def _update_order_status(order_id: str, new_status: str):
     ws, err = _get_order_worksheet()
     if ws is None:
         return False, err or "订单表不可用"
-    try:
-        records = ws.get_all_records()
-    except Exception as e:
-        return False, f"读取订单表失败: {e}"
+    records, rerr = _read_order_records()
+    if rerr:
+        return False, rerr
     for i, r in enumerate(records):
         if str(r.get("order_id", "")).strip() == order_id:
             row = i + 2
@@ -533,6 +561,7 @@ def _update_order_status(order_id: str, new_status: str):
                 ws.update_cell(
                     row, 8, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 )
+            _read_order_records.clear()  # 状态变化，刷新缓存
             print(f"[recharge] 订单 {order_id} -> {new_status}")
             return True, f"订单 {order_id} 已更新为「{new_status}」"
     return False, "未找到该订单"
