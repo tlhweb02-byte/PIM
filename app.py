@@ -72,7 +72,9 @@ def render_auth_panel():
                     st.toast("✅ " + msg)
                 except Exception:
                     pass
-                st.session_state["auth_panel_mode"] = "登录"
+                # 注意：不能在这里写 st.session_state["auth_panel_mode"]，
+                # 单选按钮已渲染，Streamlit 会抛 "cannot be modified after the widget" 异常。
+                # 退出登录时（单选按钮未渲染）再重置模式即可。
                 st.rerun()
             else:
                 st.sidebar.error(msg)
