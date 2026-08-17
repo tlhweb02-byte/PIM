@@ -210,6 +210,11 @@ class BaozunAccountAPI:
       return resp.get("data") or ""
     if code == "40001":  # 需要进行二次认证
       return ""
+    if code == "01":  # 租户参数无效（常见原因：BAOZUN_TENANT 配置了占位符或错误值）
+      raise ValueError(
+          f"获取宝尊访问票据失败(租户参数无效): 当前 BAOZUN_TENANT={self.tenant!r} "
+          f"不可用，请检查 Streamlit Secrets / .env 中的配置（可用值: baozun / NIKE）"
+      )
     raise ValueError(f"获取宝尊访问票据失败: {resp.get('message')}")
 
   def login_full(self) -> dict:
@@ -240,6 +245,20 @@ class BaozunAccountAPI:
           f"宝尊登录失败: {login_resp.get('message')} "
           f"(请检查账号密码是否填写正确)"
       )
+
+    # 2.1 租户自动校正：登录响应会返回可用租户列表，
+    # 若配置的 BAOZUN_TENANT 不在其中（常见于填了占位符/拼写错误），自动切换
+    tenants = login_resp.get("data") or []
+    tenant_codes = [
+        t.get("saasTenantCode") for t in tenants
+        if isinstance(t, dict) and t.get("saasTenantCode")
+    ]
+    if tenant_codes and self.tenant not in tenant_codes:
+      print(
+          f"提示: BAOZUN_TENANT={self.tenant!r} 不在可用租户 {tenant_codes} 中，"
+          f"自动切换为 {tenant_codes[0]}"
+      )
+      self.tenant = tenant_codes[0]
 
     # 3. 先尝试直接拿票据（部分账号可能无需二次认证）
     ticket = self._fetch_ticket(session)
