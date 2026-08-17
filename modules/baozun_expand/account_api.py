@@ -244,7 +244,7 @@ class BaozunAccountAPI:
           for response_part in msg_data:
             if not isinstance(response_part, tuple):
               continue
-            msg = email.message_from_bytes(response_part)
+            msg = email.message_from_bytes(response_part[1])
             code, score = self._score_email_for_otp(msg)
             if code and score > best_score:
               best_code, best_score = code, score
@@ -442,7 +442,7 @@ class BaozunAccountAPI:
           for rp in msg_data:
             if not isinstance(rp, tuple):
               continue
-            msg = email.message_from_bytes(rp)
+            msg = email.message_from_bytes(rp[1])
             subject = str(msg.get("Subject", "") or "")
             sender = str(msg.get("From", "") or "")
             codes = re.findall(
