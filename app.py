@@ -3,6 +3,7 @@ import streamlit as st
 # 导入 modules 文件夹下的各个独立模块
 from modules import mod_07_excel, mod_05_compress, mod_fonts, mod_stats, mod_auth, mod_recharge
 from modules.baozun_expand import app as mod_baozun_expand
+from modules.baozun_marking import app as mod_baozun_marking
 
 # 页面基础配置
 st.set_page_config(
@@ -113,6 +114,7 @@ nav_choice = st.sidebar.radio(
         "📊 运营表格一键智能转化",
         "🖼️ 智能图片压缩与降维",
         "🎨 宝尊智能扩图 (ROSS)",
+        "🏷️ 宝尊投放打标管理 (NIKE)",
         "💰 次数充值中心",
         "🔤 官方品牌字体在线下载",
         "🏆 团队提效仪表盘"
@@ -133,6 +135,18 @@ elif nav_choice == "🎨 宝尊智能扩图 (ROSS)":
     else:
         st.warning(
             "🔒 **宝尊智能扩图需要使用公司付费账号，仅对注册用户开放**\n\n"
+            "新用户注册即赠送 **10 次免费体验**，请先在左侧「用户中心」"
+            "登录或注册。"
+        )
+
+elif nav_choice == "🏷️ 宝尊投放打标管理 (NIKE)":
+    # 投放打标管理使用公司付费账号，仅对登录用户开放（未登录时锁定）
+    if mod_auth.is_logged_in():
+        mod_baozun_marking.render_ui()
+    else:
+        st.warning(
+            "🔒 **宝尊投放打标管理（NIKE官方outlets店）需要使用公司付费账号，"
+            "仅对注册用户开放**\n\n"
             "新用户注册即赠送 **10 次免费体验**，请先在左侧「用户中心」"
             "登录或注册。"
         )
