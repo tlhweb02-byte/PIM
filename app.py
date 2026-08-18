@@ -15,6 +15,8 @@ st.set_page_config(
 # ============ 侧边栏：用户中心（注册 / 登录 / 退出） ============
 def render_auth_panel():
     """渲染侧边栏用户中心；未登录时提供注册与登录表单"""
+    # 刷新页面后先从 URL 令牌恢复登录态，避免每次刷新都要重新登录
+    mod_auth.restore_login_from_token()
     st.sidebar.markdown("---")
     st.sidebar.subheader("👤 用户中心")
 

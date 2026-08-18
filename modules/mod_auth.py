@@ -10,12 +10,16 @@
 表格「用户账号」工作表列结构：
     username | password_hash | salt | created_at | used_count | last_login_at
 """
+import base64
 import datetime
 import hashlib
+import hmac
 import os
 import random
 import re
+import secrets as _secrets_mod
 import string
+import time
 import streamlit as st
 
 try:
@@ -26,9 +30,18 @@ except ImportError:
     SHEETS_OK = False
 
 # ---------- 可配置项（可通过 .env / Streamlit Secrets 覆盖） ----------
-AUTH_VERSION = "1.2.3"           # 账号系统版本（侧边栏显示，用于确认部署是否成功）
+AUTH_VERSION = "1.3.0"           # 账号系统版本（侧边栏显示，用于确认部署是否成功）
 DEFAULT_FREE_QUOTA = 10          # 新用户免费体验次数
 PBKDF2_ITERATIONS = 120000       # 密码哈希迭代次数（越慢越难被暴力破解）
+
+# ---------- 登录态跨刷新持久化（签名令牌，写入 URL 查询参数） ----------
+# 原理：st.session_state 只存在于服务器内存、绑定浏览器会话，刷新页面或
+# 服务器重启（如 Streamlit Cloud 闲置休眠）都会丢失。因此在登录成功后把
+# 「用户名|过期时间 + HMAC 签名」的令牌写入 URL（?auth=...），每次脚本
+# 运行时校验签名、有效期、账号仍存在，通过则自动恢复登录态。
+AUTH_TOKEN_TTL_DAYS = 7          # 令牌有效期（天），过期后需重新登录
+AUTH_TOKEN_PARAM = "auth"        # URL 查询参数名
+AUTH_TOKEN_VERSION = "v1"
 
 # ---------- 充值配置（微信个人收款码 + 套餐定价） ----------
 DEFAULT_WECHAT_PAY_CODE = "wxp://f2f0NgLTfBBVcEM-SaA4TyKFmxDk6QUo5LTFM4zS_X11HEs"
@@ -340,8 +353,132 @@ def login_user(username: str, password: str):
     return True, "登录成功", rec
 
 
+# ---------------------------------------------------------------------------
+# 登录令牌：URL 查询参数持久化（页面刷新 / 服务器重启后自动恢复登录）
+# ---------------------------------------------------------------------------
+_token_secret_cache: dict = {"v": None}
+
+
+def _token_secret() -> str:
+    """令牌签名密钥：优先取 AUTH_TOKEN_SECRET（.env / Secrets），
+    未配置时使用进程内随机密钥。
+    - 进程内随机密钥：页面刷新可保持登录；服务器重启后令牌失效（需重新登录）
+    - 配置 AUTH_TOKEN_SECRET：服务器重启（如云部署休眠唤醒）后仍能保持登录"""
+    if _token_secret_cache["v"] is None:
+        _token_secret_cache["v"] = (
+            _get_secret("AUTH_TOKEN_SECRET", "") or _secrets_mod.token_hex(32)
+        )
+    return _token_secret_cache["v"]
+
+
+def _make_auth_token(username: str) -> str:
+    """生成签名登录令牌：v1.<base64url(username|过期时间戳)>.<HMAC 签名>"""
+    username = _normalize_username(username)
+    exp = int(time.time()) + AUTH_TOKEN_TTL_DAYS * 86400
+    payload = f"{username}|{exp}"
+    sig = hmac.new(
+        _token_secret().encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    b64 = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
+    return f"{AUTH_TOKEN_VERSION}.{b64}.{sig}"
+
+
+def _parse_auth_token(token: str):
+    """校验令牌签名与格式；有效返回 (username, exp)，无效返回 None。
+    注意：这里不校验过期时间（由调用方判断），也不查询账号是否存在"""
+    if not token:
+        return None
+    try:
+        ver, b64, sig = token.split(".")
+        if ver != AUTH_TOKEN_VERSION:
+            return None
+        pad = "=" * (-len(b64) % 4)
+        payload = base64.urlsafe_b64decode(b64 + pad).decode("utf-8")
+        username, exp = payload.rsplit("|", 1)
+        exp = int(exp)
+    except Exception:
+        return None
+    expected = hmac.new(
+        _token_secret().encode("utf-8"),
+        f"{username}|{exp}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(expected, sig):
+        return None
+    return username, exp
+
+
+def _set_query_param(key: str, value: str):
+    """写入 URL 查询参数（兼容新旧版 Streamlit：优先 st.query_params）"""
+    try:
+        st.query_params[key] = value
+    except Exception:
+        try:
+            st.experimental_set_query_params(**{key: value})
+        except Exception:
+            pass
+
+
+def _get_query_param(key: str) -> str:
+    """读取 URL 查询参数；不存在返回空串"""
+    try:
+        v = st.query_params.get(key)
+    except Exception:
+        try:
+            v = st.experimental_get_query_params().get(key)
+        except Exception:
+            v = None
+    if isinstance(v, list):
+        v = v[0] if v else None
+    return v or ""
+
+
+def _clear_query_param(key: str):
+    """删除 URL 查询参数（兼容新旧版 Streamlit）"""
+    try:
+        if key in st.query_params:
+            del st.query_params[key]
+    except Exception:
+        try:
+            all_params = st.experimental_get_query_params()
+            all_params.pop(key, None)
+            st.experimental_set_query_params(**all_params)
+        except Exception:
+            pass
+
+
+def restore_login_from_token():
+    """页面刷新 / 服务器重启后，从 URL 令牌自动恢复登录态（未登录时生效）。
+    校验：签名 -> 有效期 -> 账号仍存在；任一步失败则清除无效令牌"""
+    if is_logged_in():
+        return
+    token = _get_query_param(AUTH_TOKEN_PARAM)
+    if not token:
+        return
+    parsed = _parse_auth_token(token)
+    if parsed is None:
+        _clear_query_param(AUTH_TOKEN_PARAM)  # 签名无效，清掉避免 URL 残留
+        return
+    username, exp = parsed
+    if exp < int(time.time()):
+        _clear_query_param(AUTH_TOKEN_PARAM)  # 已过期
+        return
+    rec, err = get_user_record(username)
+    if err:
+        return  # 表格暂时不可用：保留令牌，下次刷新再试
+    if rec is None:
+        _clear_query_param(AUTH_TOKEN_PARAM)  # 账号已被删除
+        return
+    st.session_state["auth_user"] = username
+
+
 def set_logged_in(username: str):
-    st.session_state["auth_user"] = _normalize_username(username)
+    username = _normalize_username(username)
+    st.session_state["auth_user"] = username
+    # 同时把签名令牌写入 URL，页面刷新后自动恢复登录
+    _set_query_param(AUTH_TOKEN_PARAM, _make_auth_token(username))
 
 
 def current_user() -> str:
@@ -354,6 +491,7 @@ def is_logged_in() -> bool:
 
 def logout():
     st.session_state.pop("auth_user", None)
+    _clear_query_param(AUTH_TOKEN_PARAM)
 
 
 def diagnose_auth(username: str = "", password: str = ""):

@@ -23,6 +23,7 @@
 | 免费次数 | 默认 10 次，可用 `AUTH_FREE_QUOTA` 配置 |
 | 充值套餐 | 默认 100 次 = ¥10，可用 `WECHAT_PAY_QUOTA` / `WECHAT_PAY_PRICE` 配置 |
 | 管理员 | `AUTH_ADMIN_USERNAMES`（逗号分隔）中的用户名**不限次数**，并在充值中心确认订单 |
+| 登录保持 | 登录状态写入签名令牌到 URL（`?auth=...`），**刷新页面不退出**；配置 `AUTH_TOKEN_SECRET` 后服务器重启（云部署休眠唤醒）也能保持登录 |
 | 鉴权 | 宝尊公司账号凭据仍只存在 .env / Streamlit Secrets，用户永远接触不到 |
 
 ### 🏷️ 宝尊投放打标管理（NIKE 官方 outlets 店）
@@ -72,6 +73,7 @@
 |---|---|---|
 | `AUTH_ADMIN_USERNAMES` | 管理员用户名，多个用英文逗号分隔 | 空 |
 | `AUTH_FREE_QUOTA` | 新用户免费体验次数 | `10` |
+| `AUTH_TOKEN_SECRET` | 登录令牌签名密钥（长随机串）。设置后服务器重启也能保持登录；不设置时页面刷新仍可保持登录 | 进程内随机 |
 
 ## 四、次数扣减规则
 
