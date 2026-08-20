@@ -9,7 +9,54 @@ try:
 except ImportError:
     import mod_stats
 
-def simplify_title(row):
+def get_component_example(name_str):
+    """根据中文名称提取对应的组件示例"""
+    if not name_str or pd.isna(name_str) or str(name_str).strip().lower() == 'nan':
+        return "类型=静物, 模式=跑图"
+    
+    name_str = str(name_str).strip()
+    
+    # 鞋子类关键词
+    shoe_keywords = ["运动鞋", "跑步鞋", "篮球鞋", "板鞋", "老爹鞋", "气垫鞋", "凉鞋", "鞋"]
+    
+    # 检查是否是鞋子类
+    is_shoe = any(keyword in name_str for keyword in shoe_keywords)
+    
+    if is_shoe:
+        # 鞋子类细分
+        if "男子" in name_str or "男" in name_str:
+            return "类型=鞋子静物A（男子）, 模式=跑图"
+        elif "女子" in name_str or "女" in name_str:
+            return "类型=鞋子静物A（女子）, 模式=跑图"
+        elif "大童" in name_str or "男女童" in name_str or "男童" in name_str or "女童" in name_str:
+            return "类型=鞋子静物A（大童）, 模式=跑图"
+        elif "幼童" in name_str:
+            return "类型=鞋子静物A（幼童）, 模式=跑图"
+        elif "婴童" in name_str or "宝宝" in name_str:
+            return "类型=鞋子静物A（婴童）, 模式=跑图"
+        else:
+            return "类型=鞋子静物A（男子）, 模式=跑图"  # 默认男子
+    
+    # 上装类关键词
+    top_keywords = ["卫衣", "夹克", "羽绒", "棉服", "T恤", "短袖", "衬衫", "上衣", "内衣", "连帽衫", "球衣", "篮球衣", "连体衣"]
+    
+    # 检查是否是上装类
+    is_top = any(keyword in name_str for keyword in top_keywords)
+    
+    if is_top:
+        return "类型=上装模特, 模式=跑图"
+    
+    # 下装类关键词
+    bottom_keywords = ["长裤", "短裤", "紧身裤", "运动裤", "半身裙", "裙子"]
+    
+    # 检查是否是下装类
+    is_bottom = any(keyword in name_str for keyword in bottom_keywords)
+    
+    if is_bottom:
+        return "类型=下装模特, 模式=跑图"
+    
+    # 默认返回静物
+    return "类型=静物, 模式=跑图"
     name_str = str(row.get('名称', '')).strip() if pd.notna(row.get('名称')) else ""
     feat_str = str(row.get('卖点', '')).strip() if pd.notna(row.get('卖点')) and str(row.get('卖点')).strip().lower() != 'nan' else ""
 
@@ -190,11 +237,16 @@ def process_excel(uploaded_file):
 
     if '名称' in df.columns:
         df['中文名称'] = df.apply(simplify_title, axis=1)
+        # 添加组件示例列
+        df['组件示例'] = df['中文名称'].apply(get_component_example)
         cols = list(df.columns)
+        if '组件示例' in cols:
+            cols.remove('组件示例')
         if '中文名称' in cols:
             cols.remove('中文名称')
             idx_name = cols.index('名称')
             cols.insert(idx_name + 1, '中文名称')
+            cols.insert(idx_name + 2, '组件示例')
             df = df[cols]
 
     output_buffer = io.BytesIO()
