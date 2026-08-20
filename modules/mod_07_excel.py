@@ -11,12 +11,17 @@ except ImportError:
 
 def get_component_example(name_str):
     """根据中文名称提取对应的组件示例"""
-    # 处理NaN值
-    if name_str is None or (isinstance(name_str, float) and np.isnan(name_str)):
+    # 处理NaN值 - 使用更安全的方法
+    if name_str is None:
         return "类型=静物, 模式=跑图"
     
-    name_str = str(name_str).strip()
-    if name_str.lower() == 'nan' or name_str == '':
+    # 转换为字符串并检查
+    try:
+        name_str = str(name_str).strip()
+    except:
+        return "类型=静物, 模式=跑图"
+    
+    if name_str.lower() == 'nan' or name_str == '' or name_str == 'None':
         return "类型=静物, 模式=跑图"
     
     # 鞋子类关键词
