@@ -465,9 +465,11 @@ def _render_tasks(api):
         st.warning("➕ 新建打标任务")
         with st.form("marking_new_task_form"):
             task_name = st.text_input("任务名称 *", key="marking_new_task_name")
+            group_opts = [("", "不分组")] + [(g["groupId"], g["groupName"]) for g in flat]
+            group_label_map = dict(group_opts)
             group_id = st.selectbox(
-                "所属分组", [("", "不分组")] + [(g["groupId"], g["groupName"]) for g in flat],
-                format_func=lambda x: dict([("", "不分组")] + [(g["groupId"], g["groupName"]) for g in flat]).get(x, x),
+                "所属分组", [gid for gid, _ in group_opts],
+                format_func=lambda x: group_label_map.get(x, x),
                 key="marking_new_task_group",
             )
             submitted = st.form_submit_button("✅ 创建任务", type="primary")
