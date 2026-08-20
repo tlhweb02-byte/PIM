@@ -11,10 +11,13 @@ except ImportError:
 
 def get_component_example(name_str):
     """根据中文名称提取对应的组件示例"""
-    if not name_str or pd.isna(name_str) or str(name_str).strip().lower() == 'nan':
+    # 处理NaN值
+    if name_str is None or (isinstance(name_str, float) and np.isnan(name_str)):
         return "类型=静物, 模式=跑图"
     
     name_str = str(name_str).strip()
+    if name_str.lower() == 'nan' or name_str == '':
+        return "类型=静物, 模式=跑图"
     
     # 鞋子类关键词
     shoe_keywords = ["运动鞋", "跑步鞋", "篮球鞋", "板鞋", "老爹鞋", "气垫鞋", "凉鞋", "鞋"]
