@@ -57,6 +57,8 @@ def get_component_example(name_str):
     
     # 默认返回静物
     return "类型=静物, 模式=跑图"
+
+def simplify_title(row):
     name_str = str(row.get('名称', '')).strip() if pd.notna(row.get('名称')) else ""
     feat_str = str(row.get('卖点', '')).strip() if pd.notna(row.get('卖点')) and str(row.get('卖点')).strip().lower() != 'nan' else ""
 
