@@ -119,10 +119,7 @@ def render_ui():
 
   remaining = mod_auth.get_remaining(username)
   if remaining == 0:
-    st.error(
-        "😢 **次数已用完**。请到左侧「💰 次数充值中心」充值获取次数，"
-        "或联系管理员。"
-    )
+    st.error("😢 **次数已用完**。请发送邮件联系管理员申请增加次数。")
     return
 
   if remaining < 0:
