@@ -25,7 +25,7 @@ def get_component_example(name_str):
         return "类型=静物, 模式=跑图"
     
     # 鞋子类关键词
-    shoe_keywords = ["运动鞋", "跑步鞋", "篮球鞋", "板鞋", "老爹鞋", "气垫鞋", "凉鞋", "鞋"]
+    shoe_keywords = ["训练鞋", "运动鞋", "跑步鞋", "篮球鞋", "足球鞋", "网球鞋", "羽毛球鞋", "帆布鞋", "休闲鞋", "板鞋", "老爹鞋", "气垫鞋", "凉鞋", "童鞋", "鞋"]
     
     # 检查是否是鞋子类
     is_shoe = any(keyword in name_str for keyword in shoe_keywords)
@@ -127,13 +127,32 @@ def simplify_title(row):
         suffix = "上衣"
     elif "内衣" in name_str:
         suffix = "内衣"
+    # 具体鞋类类型（从具体到通用排序，优先匹配更具体的类型）
+    elif "训练鞋" in name_str:
+        suffix = "训练鞋"
     elif "跑步鞋" in name_str or "竞速" in name_str:
         suffix = "跑步鞋"
     elif "篮球鞋" in name_str:
         suffix = "篮球鞋"
+    elif "足球鞋" in name_str:
+        suffix = "足球鞋"
+    elif "网球鞋" in name_str:
+        suffix = "网球鞋"
+    elif "羽毛球鞋" in name_str:
+        suffix = "羽毛球鞋"
+    elif "帆布鞋" in name_str:
+        suffix = "帆布鞋"
+    elif "休闲鞋" in name_str:
+        suffix = "休闲鞋"
     elif "童鞋" in name_str:
         suffix = "童鞋"
-    elif "运动鞋" in name_str or "跑鞋" in name_str or "老爹鞋" in name_str or "气垫鞋" in name_str or "板鞋" in name_str or "鞋" in name_str:
+    elif "老爹鞋" in name_str:
+        suffix = "老爹鞋"
+    elif "气垫鞋" in name_str:
+        suffix = "气垫鞋"
+    elif "板鞋" in name_str:
+        suffix = "板鞋"
+    elif "运动鞋" in name_str or "跑鞋" in name_str or "鞋" in name_str:
         suffix = "运动鞋"
     else:
         suffix = "服装"
