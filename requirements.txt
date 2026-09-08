@@ -1,11 +1,18 @@
-streamlit
-pandas
-numpy
-openpyxl
-pillow
-tinify
-gspread
-google-auth
-scrapling
-python-dotenv
-qrcode
+# 提效中台 依赖锁定（稳定版）
+# ⚠️ 关键：pyarrow 必须为 22.x 或 23.x。
+#   - pyarrow 24 / 25 在 Python 3.14 下会触发 mimalloc 段错误（apache/arrow#50471 / #50428），
+#     app 在重启/退出时无 traceback 直接崩溃 —— 这就是本次崩溃的根因。
+#   - 官方确认 "22/23 unaffected"，故此处钉到 23.0.0。
+# 建议：同时在 Streamlit Cloud 把 Python 版本改为 3.12 / 3.11（更稳）。
+streamlit==1.63.0
+pandas==3.0.5
+numpy==2.5.2
+pyarrow==23.0.0
+openpyxl==3.1.5
+pillow==12.3.0
+tinify==1.7.2
+gspread==6.2.1
+google-auth==2.57.1
+scrapling==0.4.15
+python-dotenv==1.2.3
+qrcode==8.2
