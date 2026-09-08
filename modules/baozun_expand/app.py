@@ -136,6 +136,20 @@ def render_ui():
         "选择图片", type=["jpg", "jpeg", "png", "webp"]
     )
 
+    # 业务限制：禁止上传超过 10MB 的图片
+    MAX_UPLOAD_MB = 10
+    MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+    if uploaded_file is not None:
+      file_size = getattr(uploaded_file, "size", None)
+      if file_size is None:
+        file_size = len(uploaded_file.getvalue())
+      if file_size > MAX_UPLOAD_BYTES:
+        st.error(
+            f"❌ 图片大小超过 {MAX_UPLOAD_MB}MB 限制"
+            f"（当前 {file_size / 1024 / 1024:.1f}MB），请压缩后再上传。"
+        )
+        uploaded_file = None  # 视为未上传：不预览、不生成
+
     orig_w, orig_h = 800, 800
     if uploaded_file:
       image = Image.open(uploaded_file)
