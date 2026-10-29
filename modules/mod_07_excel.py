@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import unicodedata
 from openpyxl.styles import PatternFill
 
-MODULE_VERSION = "261029.5"
+MODULE_VERSION = "261029.6"
 CHINA_TIMEZONE = timezone(timedelta(hours=8))
 
 # 二次识别按具体品类优先排列；只凭明确品类词判断，不以材质/功能猜品类。
@@ -236,7 +236,7 @@ def simplify_title(row):
         return (kw in feat) or (feat in kw)
 
     # 功能性卖点 > 跑步场景 > 材质/款式等修饰词 > 通用备用词。
-    # 先选不与卖点列重合的功能词；均重合时仍保留真实功能，避免退回“经典”。
+    # 每一层都严格排除与卖点列重合的修饰词。
     functional_keywords = [
         "透气", "气柱", "缓震", "气垫", "保暖", "速干", "防水", "拒水", "防泼水",
         "防风", "防晒", "抗扭", "支撑", "抓地", "回弹", "导湿", "干爽", "轻便",
@@ -245,11 +245,12 @@ def simplify_title(row):
     functional_matches = [kw for kw in functional_keywords
                           if kw in name_str and kw not in prefix and kw not in suffix]
     mid = next((kw for kw in functional_matches if not is_overlapping_with_feat(kw, feat_str)),
-               functional_matches[0] if functional_matches else "")
+               "")
     if not mid and suffix == "跑步鞋":
-        mid = next((terrain for terrain in ["公路", "越野"] if terrain in name_str), "")
+        mid = next((terrain for terrain in ["公路", "越野"]
+                    if terrain in name_str and not is_overlapping_with_feat(terrain, feat_str)), "")
     if not mid:
-        # 材质、工艺与版型也是有效商品信息；重复卖点时仍优于凭空补“经典”。
+        # 材质、工艺与版型保留具体描述，同时避开卖点列。
         detail_keywords = [
             "摇粒绒", "灯芯绒", "羊羔绒", "毛圈", "薄绒", "加绒", "羽绒", "针织",
             "纯棉", "梭织", "翻毛皮", "皮面", "刺绣", "直筒", "撞色", "低帮",
@@ -259,8 +260,7 @@ def simplify_title(row):
                           if kw in name_str and kw not in suffix
                           and len(prefix + kw + suffix) <= 7]
         mid = next((kw for kw in detail_matches if not is_overlapping_with_feat(kw, feat_str)),
-                   detail_matches[0] if detail_matches else "")
-    priority_mid = bool(mid)
+                   "")
 
     # 3. 优先从原名称中寻找修饰词，并跳过与卖点重合的词
     if not mid:
@@ -269,17 +269,10 @@ def simplify_title(row):
                 if not is_overlapping_with_feat(kw, feat_str):
                     mid = kw
                     break
-        if not mid:
-            # 原名称中的真实描述即使与卖点重复，也不退回通用备用词。
-            mid = next((kw for kw in keywords
-                        if kw in name_str and kw not in prefix and kw not in suffix
-                        and kw not in ["经典", "日常", "运动", "时尚", "简约", "百搭"]
-                        and len(prefix + kw + suffix) <= 7), "")
-            priority_mid = bool(mid)
 
     # 4. 校正卖点重合机制（保底校验）
     # 若 mid 为空或与卖点发生重合，自动选用不重合的备用词
-    if not mid or (not priority_mid and is_overlapping_with_feat(mid, feat_str)):
+    if not mid or is_overlapping_with_feat(mid, feat_str):
         mid = ""
         backup_candidates = ["经典", "日常", "时尚", "运动", "休闲", "简约", "百搭", "舒适"]
         for candidate in backup_candidates:
