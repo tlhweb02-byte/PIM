@@ -3,6 +3,17 @@ import pandas as pd
 import numpy as np
 import io
 import re
+from datetime import datetime, timedelta, timezone
+
+MODULE_VERSION = "261029.1"
+CHINA_TIMEZONE = timezone(timedelta(hours=8))
+
+
+def get_download_filename(converted_at=None):
+    """以北京时间的转化日期命名，避免云端 UTC 日期相差一天。"""
+    converted_at = converted_at or datetime.now(CHINA_TIMEZONE)
+    converted_at = converted_at.astimezone(CHINA_TIMEZONE)
+    return f"{converted_at.month}月{converted_at.day}日线框提取.xlsx"
 
 try:
     from modules import mod_stats
@@ -136,7 +147,7 @@ def simplify_title(row):
         suffix = "训练鞋"
     elif "运动靴" in name_str:
         suffix = "运动靴"
-    elif "跑步鞋" in name_str or "跑鞋" in name_str or "竞速" in name_str:
+    elif "跑步鞋" in name_str or "跑鞋" in name_str.replace("跑鞋风", "") or "竞速" in name_str:
         suffix = "跑步鞋"
     elif "篮球鞋" in name_str:
         suffix = "篮球鞋"
@@ -163,12 +174,6 @@ def simplify_title(row):
     else:
         suffix = "服装"
 
-    # 跑步场景是商品类型的一部分，优先保留，不受卖点去重影响。
-    if suffix == "跑步鞋":
-        for terrain in ["公路", "越野"]:
-            if terrain in name_str:
-                return prefix + terrain + suffix
-
     # 扩展修饰词库（包含材质、款式、功能等词汇）
     keywords = [
         "摇粒绒", "灯芯绒", "工装", "长袖", "短袖", "羽绒", "加绒", "拒水", "防风",
@@ -185,18 +190,32 @@ def simplify_title(row):
             return False
         return (kw in feat) or (feat in kw)
 
-    mid = ""
+    # 功能性卖点 > 跑步场景 > 材质/款式等修饰词 > 通用备用词。
+    # 先选不与卖点列重合的功能词；均重合时仍保留真实功能，避免退回“经典”。
+    functional_keywords = [
+        "透气", "气柱", "缓震", "气垫", "保暖", "速干", "防水", "拒水", "防泼水",
+        "防风", "防晒", "抗扭", "支撑", "抓地", "回弹", "导湿", "干爽", "轻便",
+        "轻盈", "耐穿", "弹性",
+    ]
+    functional_matches = [kw for kw in functional_keywords
+                          if kw in name_str and kw not in prefix and kw not in suffix]
+    mid = next((kw for kw in functional_matches if not is_overlapping_with_feat(kw, feat_str)),
+               functional_matches[0] if functional_matches else "")
+    if not mid and suffix == "跑步鞋":
+        mid = next((terrain for terrain in ["公路", "越野"] if terrain in name_str), "")
+    priority_mid = bool(mid)
 
     # 3. 优先从原名称中寻找修饰词，并跳过与卖点重合的词
-    for kw in keywords:
-        if kw in name_str and kw not in prefix and kw not in suffix:
-            if not is_overlapping_with_feat(kw, feat_str):
-                mid = kw
-                break
+    if not mid:
+        for kw in keywords:
+            if kw in name_str and kw not in prefix and kw not in suffix:
+                if not is_overlapping_with_feat(kw, feat_str):
+                    mid = kw
+                    break
 
     # 4. 校正卖点重合机制（保底校验）
     # 若 mid 为空或与卖点发生重合，自动选用不重合的备用词
-    if not mid or is_overlapping_with_feat(mid, feat_str):
+    if not mid or (not priority_mid and is_overlapping_with_feat(mid, feat_str)):
         mid = ""
         backup_candidates = ["经典", "日常", "时尚", "运动", "休闲", "简约", "百搭", "舒适"]
         for candidate in backup_candidates:
@@ -304,7 +323,7 @@ def process_excel(uploaded_file):
 
 # 导出供主程序调用的 UI 渲染入口
 def render_ui():
-    st.header("📊 运营表格一键智能转化")
+    st.header(f"📊 运营表格一键智能转化 {MODULE_VERSION}")
     st.markdown("上传原始运营 Excel 表格，自动截取有效区域、智能缩减商品标题（6~7字），并格式化输出标准清单。")
 
     uploaded_file = st.file_uploader("📂 请选择需要转化的 Excel 文件 (.xlsx, .xls)", type=["xlsx", "xls"])
@@ -326,7 +345,7 @@ def render_ui():
             st.download_button(
                 label="📥 点击下载转化后的标准清单 Excel",
                 data=output_buffer,
-                file_name="生成的标准转化清单.xlsx",
+                file_name=get_download_filename(),
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         except Exception as e:

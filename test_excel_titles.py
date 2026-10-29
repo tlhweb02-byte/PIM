@@ -1,10 +1,13 @@
 """商品标题及 Excel 导出回归测试：python -m unittest test_excel_titles。"""
 import io
 import unittest
+from datetime import datetime, timezone
 
 import pandas as pd
 
-from modules.mod_07_excel import get_component_example, process_excel, simplify_title
+from modules.mod_07_excel import (
+    MODULE_VERSION, get_component_example, get_download_filename, process_excel, simplify_title,
+)
 
 
 class ExcelTitleTests(unittest.TestCase):
@@ -15,7 +18,17 @@ class ExcelTitleTests(unittest.TestCase):
         ("女子运动靴FQ0001", "", "女子经典运动靴"),
         ("NIKE WINFLO 11 女子公路跑步鞋IM3381", "", "女子公路跑步鞋"),
         ("NIKE WINFLO 11 女子公路跑步鞋IM3381", "公路缓震", "女子公路跑步鞋"),
-        ("男子轻盈越野跑步鞋FQ0001", "越野", "男子越野跑步鞋"),
+        ("男子轻盈越野跑步鞋FQ0001", "越野", "男子轻盈跑步鞋"),
+        ("女子专业跑步鞋夏公路透气JOURNEY RUN IR1523", "轻盈", "女子透气跑步鞋"),
+        ("女子专业跑步鞋夏公路透气JOURNEY RUN IR1523", "透气", "女子透气跑步鞋"),
+        ("男子气柱运动鞋SHOX RIDE 2 IO4296", "回弹", "男子气柱运动鞋"),
+        ("男子气柱运动鞋SHOX RIDE 2 IO4296", "气柱", "男子气柱运动鞋"),
+        ("男子公路专业跑步鞋透气官方WINFLO 11 IH7328", "", "男子透气跑步鞋"),
+        ("INTERACT RUN女公路跑步鞋秋透气轻便运动FD2292", "透气", "女子轻便跑步鞋"),
+        ("男子专业跑步鞋夏季公路竞速STREAKFLY 2 IO8268", "回弹", "男子公路跑步鞋"),
+        ("女子运动鞋透气轻便缓震支撑抓地舒适HF1233", "日常", "女子透气运动鞋"),
+        ("迈柔女子缓震运动鞋复古跑鞋风VOMERO 5 IB7253", "", "女子缓震运动鞋"),
+        ("女子透气运动鞋复古跑鞋风跑步LD-1000 IO0179", "复古", "女子透气运动鞋"),
         ("女子公路跑鞋IM3381", "", "女子公路跑步鞋"),
         ("女子跑步鞋IM3381", "", "女子经典跑步鞋"),
         ("THERMA-FIT男子越野跑步马甲冬季棉服保暖FZ0002", "", "男子保暖马甲"),
@@ -48,6 +61,18 @@ class ExcelTitleTests(unittest.TestCase):
         workbook = pd.ExcelFile(exported)
         self.assertEqual(workbook.sheet_names, ['首页线框', '最终视觉稿'])
         self.assertEqual(pd.read_excel(workbook, sheet_name='首页线框')['中文名称'].tolist(), expected)
+
+    def test_download_date_uses_china_timezone(self):
+        self.assertEqual(get_download_filename(datetime(2026, 10, 28, 17, tzinfo=timezone.utc)),
+                         '10月29日线框提取.xlsx')
+        self.assertEqual(get_download_filename(datetime(2026, 12, 31, 17, tzinfo=timezone.utc)),
+                         '1月1日线框提取.xlsx')
+
+    def test_page_version(self):
+        from streamlit.testing.v1 import AppTest
+        app = AppTest.from_string('from modules.mod_07_excel import render_ui\nrender_ui()').run()
+        self.assertEqual(len(app.exception), 0)
+        self.assertEqual(app.header[0].value, f'📊 运营表格一键智能转化 {MODULE_VERSION}')
 
 
 if __name__ == '__main__':
