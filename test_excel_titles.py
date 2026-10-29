@@ -12,6 +12,17 @@ from modules.mod_07_excel import (
 
 class ExcelTitleTests(unittest.TestCase):
     CASES = [
+        ("女子透气背心FN1001", "", "女子透气背心"),
+        ("男子宽松卫裤FN1002", "", "男子宽松长裤"),
+        ("女子连衣裙FN1003", "", "女子经典连衣裙"),
+        ("男子保暖针织衫FN1004", "", "男子保暖针织衫"),
+        ("男子防风外套FN1005", "", "男子防风外套"),
+        ("女子速干Ｔ－ＳＨＩＲＴFN1006", "", "女子速干T恤"),
+        ("幼童加绒连 裤 裙FN1007", "", "幼童加绒连裤裙"),
+        ("男子保暖坎肩FN1008", "", "男子保暖马甲"),
+        ("女子百褶裙FN1009", "", "女子经典半身裙"),
+        ("男子保暖冬季新品FN1010", "", "男子保暖服装"),
+        ("男子运动服装FN1011", "", "男子运动服装"),
         ("马年限定幼童加绒连裤裙秋季女童IU5478", "加绒", "幼童经典连裤裙"),
         ("马年限定幼童加绒连裤裙秋季女童IU5478", "", "幼童加绒连裤裙"),
         ("男子运动衫FN0001", "", "男子经典运动衫"),
@@ -46,6 +57,10 @@ class ExcelTitleTests(unittest.TestCase):
 
     def test_components(self):
         self.assertEqual(get_component_example("幼童经典连裤裙"), "类型=下装模特, 模式=跑图")
+        for title in ["女子经典连衣裙", "男子宽松长裤"]:
+            self.assertEqual(get_component_example(title), "类型=下装模特, 模式=跑图")
+        for title in ["女子透气背心", "男子保暖针织衫", "男子防风外套"]:
+            self.assertEqual(get_component_example(title), "类型=上装模特, 模式=跑图")
         for title in ["男子经典运动衫", "男子保暖马甲"]:
             self.assertEqual(get_component_example(title), "类型=上装模特, 模式=跑图")
         for gender in ["男子", "女子"]:

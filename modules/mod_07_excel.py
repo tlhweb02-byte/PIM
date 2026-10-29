@@ -4,9 +4,44 @@ import numpy as np
 import io
 import re
 from datetime import datetime, timedelta, timezone
+import unicodedata
 
-MODULE_VERSION = "261029.2"
+MODULE_VERSION = "261029.3"
 CHINA_TIMEZONE = timezone(timedelta(hours=8))
+
+# 二次识别按具体品类优先排列；只凭明确品类词判断，不以材质/功能猜品类。
+SECONDARY_CATEGORIES = (
+    ("连裤裙", ("连裤裙", "裙裤"), "bottom"),
+    ("连衣裙", ("连衣裙", "吊带裙"), "bottom"),
+    ("半身裙", ("半身裙", "短裙", "长裙", "网球裙", "百褶裙", "运动裙"), "bottom"),
+    ("连体裤", ("连体裤", "背带裤"), "bottom"),
+    ("紧身裤", ("紧身裤", "打底裤", "瑜伽裤"), "bottom"),
+    ("短裤", ("短裤", "五分裤", "七分裤"), "bottom"),
+    ("长裤", ("长裤", "卫裤", "休闲裤", "梭织裤", "针织裤", "牛仔裤", "工装裤", "九分裤"), "bottom"),
+    ("马甲", ("马甲", "背心式外套", "坎肩"), "top"),
+    ("运动衫", ("运动衫", "汗衫"), "top"),
+    ("卫衣", ("卫衣", "连帽衫", "帽衫"), "top"),
+    ("针织衫", ("针织衫", "毛衣", "羊毛衫"), "top"),
+    ("冲锋衣", ("冲锋衣",), "top"),
+    ("防晒衣", ("防晒衣",), "top"),
+    ("夹克", ("夹克", "棉衣", "棉袄"), "top"),
+    ("外套", ("外套", "大衣", "风衣"), "top"),
+    ("开衫", ("开衫",), "top"),
+    ("衬衫", ("衬衫",), "top"),
+    ("T恤", ("t恤", "t-shirt", "tshirt", "t shirt", "t恤衫", "体恤", "体恤衫"), "top"),
+    ("背心", ("背心",), "top"),
+    ("套装", ("套装",), "still"),
+    ("运动靴", ("运动靴", "靴子", "短靴", "长靴", "雪地靴"), "shoe"),
+)
+
+
+def identify_secondary_category(name):
+    """从原名称复核品类，兼容全角字符、大小写及品类词中的空白。"""
+    normalized = re.sub(r"\s+", "", unicodedata.normalize("NFKC", name)).casefold()
+    for category, aliases, _ in SECONDARY_CATEGORIES:
+        if any(re.sub(r"\s+", "", alias).casefold() in normalized for alias in aliases):
+            return category
+    return "服装"
 
 
 def get_download_filename(converted_at=None):
@@ -39,7 +74,8 @@ def get_component_example(name_str):
     shoe_keywords = ["训练鞋", "运动鞋", "运动靴", "跑步鞋", "篮球鞋", "足球鞋", "网球鞋", "羽毛球鞋", "帆布鞋", "休闲鞋", "板鞋", "老爹鞋", "气垫鞋", "凉鞋", "童鞋", "鞋"]
     
     # 检查是否是鞋子类
-    is_shoe = any(keyword in name_str for keyword in shoe_keywords)
+    is_shoe = any(keyword in name_str for keyword in shoe_keywords) or any(
+        category in name_str for category, _, group in SECONDARY_CATEGORIES if group == "shoe")
     
     if is_shoe:
         # 鞋子类细分
@@ -60,7 +96,8 @@ def get_component_example(name_str):
     top_keywords = ["卫衣", "运动衫", "马甲", "夹克", "羽绒", "棉服", "T恤", "短袖", "衬衫", "上衣", "内衣", "连帽衫", "球衣", "篮球衣", "连体衣"]
     
     # 检查是否是上装类
-    is_top = any(keyword in name_str for keyword in top_keywords)
+    is_top = any(keyword in name_str for keyword in top_keywords) or any(
+        category in name_str for category, _, group in SECONDARY_CATEGORIES if group == "top")
     
     if is_top:
         return "类型=上装模特, 模式=跑图"
@@ -69,7 +106,8 @@ def get_component_example(name_str):
     bottom_keywords = ["长裤", "短裤", "紧身裤", "运动裤", "半身裙", "连裤裙", "裙子"]
     
     # 检查是否是下装类
-    is_bottom = any(keyword in name_str for keyword in bottom_keywords)
+    is_bottom = any(keyword in name_str for keyword in bottom_keywords) or any(
+        category in name_str for category, _, group in SECONDARY_CATEGORIES if group == "bottom")
     
     if is_bottom:
         return "类型=下装模特, 模式=跑图"
@@ -175,6 +213,10 @@ def simplify_title(row):
         suffix = "运动鞋"
     else:
         suffix = "服装"
+
+    # 只复核首轮未识别的名称，已明确识别的品类保持原有规则。
+    if suffix == "服装":
+        suffix = identify_secondary_category(name_str)
 
     # 扩展修饰词库（包含材质、款式、功能等词汇）
     keywords = [
