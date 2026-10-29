@@ -25,7 +25,7 @@ def get_component_example(name_str):
         return "类型=静物, 模式=跑图"
     
     # 鞋子类关键词
-    shoe_keywords = ["训练鞋", "运动鞋", "跑步鞋", "篮球鞋", "足球鞋", "网球鞋", "羽毛球鞋", "帆布鞋", "休闲鞋", "板鞋", "老爹鞋", "气垫鞋", "凉鞋", "童鞋", "鞋"]
+    shoe_keywords = ["训练鞋", "运动鞋", "运动靴", "跑步鞋", "篮球鞋", "足球鞋", "网球鞋", "羽毛球鞋", "帆布鞋", "休闲鞋", "板鞋", "老爹鞋", "气垫鞋", "凉鞋", "童鞋", "鞋"]
     
     # 检查是否是鞋子类
     is_shoe = any(keyword in name_str for keyword in shoe_keywords)
@@ -46,7 +46,7 @@ def get_component_example(name_str):
             return "类型=鞋子静物A（男子）, 模式=跑图"  # 默认男子
     
     # 上装类关键词
-    top_keywords = ["卫衣", "夹克", "羽绒", "棉服", "T恤", "短袖", "衬衫", "上衣", "内衣", "连帽衫", "球衣", "篮球衣", "连体衣"]
+    top_keywords = ["卫衣", "运动衫", "马甲", "夹克", "羽绒", "棉服", "T恤", "短袖", "衬衫", "上衣", "内衣", "连帽衫", "球衣", "篮球衣", "连体衣"]
     
     # 检查是否是上装类
     is_top = any(keyword in name_str for keyword in top_keywords)
@@ -115,6 +115,10 @@ def simplify_title(row):
         suffix = "长裤"
     elif "卫衣" in name_str or "连帽衫" in name_str:
         suffix = "卫衣"
+    elif "运动衫" in name_str:
+        suffix = "运动衫"
+    elif "马甲" in name_str:
+        suffix = "马甲"
     elif "夹克" in name_str or "羽绒" in name_str or "棉服" in name_str:
         suffix = "夹克"
     elif "衬衫" in name_str:
@@ -130,7 +134,9 @@ def simplify_title(row):
     # 具体鞋类类型（从具体到通用排序，优先匹配更具体的类型）
     elif "训练鞋" in name_str:
         suffix = "训练鞋"
-    elif "跑步鞋" in name_str or "竞速" in name_str:
+    elif "运动靴" in name_str:
+        suffix = "运动靴"
+    elif "跑步鞋" in name_str or "跑鞋" in name_str or "竞速" in name_str:
         suffix = "跑步鞋"
     elif "篮球鞋" in name_str:
         suffix = "篮球鞋"
@@ -152,10 +158,16 @@ def simplify_title(row):
         suffix = "气垫鞋"
     elif "板鞋" in name_str:
         suffix = "板鞋"
-    elif "运动鞋" in name_str or "跑鞋" in name_str or "鞋" in name_str:
+    elif "运动鞋" in name_str or "鞋" in name_str:
         suffix = "运动鞋"
     else:
         suffix = "服装"
+
+    # 跑步场景是商品类型的一部分，优先保留，不受卖点去重影响。
+    if suffix == "跑步鞋":
+        for terrain in ["公路", "越野"]:
+            if terrain in name_str:
+                return prefix + terrain + suffix
 
     # 扩展修饰词库（包含材质、款式、功能等词汇）
     keywords = [
