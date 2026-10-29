@@ -4,6 +4,7 @@ import unittest
 from datetime import datetime, timezone
 
 import pandas as pd
+from openpyxl import load_workbook
 
 from modules.mod_07_excel import (
     MODULE_VERSION, get_component_example, get_download_filename, process_excel, simplify_title,
@@ -79,6 +80,22 @@ class ExcelTitleTests(unittest.TestCase):
         workbook = pd.ExcelFile(exported)
         self.assertEqual(workbook.sheet_names, ['首页线框', '最终视觉稿'])
         self.assertEqual(pd.read_excel(workbook, sheet_name='首页线框')['中文名称'].tolist(), expected)
+        exported.seek(0)
+        styled_workbook = load_workbook(exported)
+        sheet = styled_workbook['首页线框']
+        title_column = result.columns.get_loc('中文名称') + 1
+        for row_number, title in enumerate(expected, start=2):
+            with self.subTest(exported_title=title):
+                cell = sheet.cell(row=row_number, column=title_column)
+                if title.endswith('服装'):
+                    self.assertEqual(cell.fill.patternType, 'solid')
+                    self.assertEqual(cell.fill.fgColor.rgb, 'FFFFC7CE')
+                else:
+                    self.assertIsNone(cell.fill.patternType)
+                for other_cell in sheet[row_number]:
+                    if other_cell.column != title_column:
+                        self.assertIsNone(other_cell.fill.patternType)
+        styled_workbook.close()
 
     def test_download_date_uses_china_timezone(self):
         self.assertEqual(get_download_filename(datetime(2026, 10, 28, 17, tzinfo=timezone.utc)),

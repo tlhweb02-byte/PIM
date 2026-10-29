@@ -5,8 +5,9 @@ import io
 import re
 from datetime import datetime, timedelta, timezone
 import unicodedata
+from openpyxl.styles import PatternFill
 
-MODULE_VERSION = "261029.3"
+MODULE_VERSION = "261029.4"
 CHINA_TIMEZONE = timezone(timedelta(hours=8))
 
 # 二次识别按具体品类优先排列；只凭明确品类词判断，不以材质/功能猜品类。
@@ -357,6 +358,13 @@ def process_excel(uploaded_file):
     with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
         df.to_excel(writer, sheet_name='首页线框', index=False)
         workbook = writer.book
+        if '中文名称' in df.columns:
+            title_column = df.columns.get_loc('中文名称') + 1
+            unresolved_fill = PatternFill(fill_type='solid', fgColor='FFFFC7CE')
+            worksheet = writer.sheets['首页线框']
+            for row_number, title in enumerate(df['中文名称'], start=2):
+                if isinstance(title, str) and title.endswith('服装'):
+                    worksheet.cell(row=row_number, column=title_column).fill = unresolved_fill
         workbook.create_sheet('最终视觉稿')
         writer.sheets['首页线框'].views.sheetView[0].tabSelected = True
         if '最终视觉稿' in writer.sheets:
