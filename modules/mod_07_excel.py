@@ -5,7 +5,7 @@ import io
 import re
 from datetime import datetime, timedelta, timezone
 
-MODULE_VERSION = "261029.1"
+MODULE_VERSION = "261029.2"
 CHINA_TIMEZONE = timezone(timedelta(hours=8))
 
 
@@ -66,7 +66,7 @@ def get_component_example(name_str):
         return "类型=上装模特, 模式=跑图"
     
     # 下装类关键词
-    bottom_keywords = ["长裤", "短裤", "紧身裤", "运动裤", "半身裙", "裙子"]
+    bottom_keywords = ["长裤", "短裤", "紧身裤", "运动裤", "半身裙", "连裤裙", "裙子"]
     
     # 检查是否是下装类
     is_bottom = any(keyword in name_str for keyword in bottom_keywords)
@@ -114,6 +114,8 @@ def simplify_title(row):
         suffix = "球衣"
     elif "连体衣" in name_str:
         suffix = "连体衣"
+    elif "连裤裙" in name_str:
+        suffix = "连裤裙"
     elif "半身裙" in name_str:
         suffix = "半身裙"
     elif "凉鞋" in name_str:

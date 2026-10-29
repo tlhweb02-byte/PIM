@@ -12,6 +12,8 @@ from modules.mod_07_excel import (
 
 class ExcelTitleTests(unittest.TestCase):
     CASES = [
+        ("马年限定幼童加绒连裤裙秋季女童IU5478", "加绒", "幼童经典连裤裙"),
+        ("马年限定幼童加绒连裤裙秋季女童IU5478", "", "幼童加绒连裤裙"),
         ("男子运动衫FN0001", "", "男子经典运动衫"),
         ("女子运动衫FN0001", "", "女子经典运动衫"),
         ("男子运动靴FQ0001", "", "男子经典运动靴"),
@@ -43,6 +45,7 @@ class ExcelTitleTests(unittest.TestCase):
                 self.assertEqual(simplify_title(pd.Series({'名称': name, '卖点': feature})), expected)
 
     def test_components(self):
+        self.assertEqual(get_component_example("幼童经典连裤裙"), "类型=下装模特, 模式=跑图")
         for title in ["男子经典运动衫", "男子保暖马甲"]:
             self.assertEqual(get_component_example(title), "类型=上装模特, 模式=跑图")
         for gender in ["男子", "女子"]:
