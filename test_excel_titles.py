@@ -119,7 +119,9 @@ class ExcelTitleTests(unittest.TestCase):
         from streamlit.testing.v1 import AppTest
         app = AppTest.from_string('from modules.mod_07_excel import render_ui\nrender_ui()').run()
         self.assertEqual(len(app.exception), 0)
-        self.assertEqual(app.header[0].value, f'📊 运营表格一键智能转化 {MODULE_VERSION}')
+        header_html = ''.join(m.value for m in app.markdown)
+        self.assertIn('运营表格智能转化', header_html)
+        self.assertIn(f'v{MODULE_VERSION}', header_html)
 
 
 if __name__ == '__main__':
