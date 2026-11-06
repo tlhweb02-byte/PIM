@@ -3,7 +3,7 @@ import io
 import os
 import zipfile
 from PIL import Image
-from modules import mod_stats
+from modules import mod_stats, ui_theme
 
 try:
     import tinify
@@ -94,18 +94,21 @@ def compress_single_image(img_bytes, filename, target_kb):
 
 # 导出供主程序调用的 UI 渲染入口
 def render_ui():
-    st.header("🖼️ 智能图片压缩与降维")
-    st.markdown("支持 PNG 无损转 JPG 降维、画质自动衰减与极限云端压缩。可上传多张图片或单个包含目录结构的 ZIP 压缩包。")
+    ui_theme.page_header(
+        "图片压缩与降维",
+        "PNG 无损转 JPG、画质自动衰减与云端极限压缩。支持多张图片或保留目录结构的 ZIP 压缩包。",
+        eyebrow="Image Compression",
+    )
 
-    target_kb = st.slider("🎯 目标文件大小上限 (KB)", min_value=100, max_value=2000, value=500, step=50)
+    target_kb = st.slider("目标文件大小上限 (KB)", min_value=100, max_value=2000, value=500, step=50)
 
-    upload_mode = st.radio("请选择上传模式：", ["多张图片上传", "ZIP 压缩包上传 (保持目录结构)"], horizontal=True)
+    upload_mode = st.radio("上传模式", ["多张图片上传", "ZIP 压缩包上传 (保持目录结构)"], horizontal=True)
 
     if upload_mode == "多张图片上传":
-        files = st.file_uploader("📂 选择一张或多张图片", type=["png", "jpg", "jpeg", "webp"], accept_multiple_files=True)
+        files = st.file_uploader("选择一张或多张图片", type=["png", "jpg", "jpeg", "webp"], accept_multiple_files=True)
         
         if files:
-            if st.button("🚀 开始极速压缩"):
+            if st.button("开始压缩", type="primary"):
                 logs = []
                 compressed_files = []
                 total_saved_bytes = 0
@@ -133,7 +136,7 @@ def render_ui():
 
                 st.success(f"🎉 压缩完成！共处理 {len(files)} 张图片，提效战绩已实时同步。")
 
-                st.subheader("📝 处理日志监控")
+                ui_theme.section_title("处理日志")
                 st.code("\n".join(logs), language="text")
 
                 zip_buf = io.BytesIO()
@@ -195,7 +198,7 @@ def render_ui():
                 out_zip_buf.seek(0)
                 st.success("🎉 ZIP 压缩包处理完成！已保持原嵌套目录结构，提效战绩已实时同步。")
 
-                st.subheader("📝 处理日志监控")
+                ui_theme.section_title("处理日志")
                 st.code("\n".join(logs), language="text")
 
                 st.download_button(

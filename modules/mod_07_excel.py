@@ -387,10 +387,15 @@ def process_excel(uploaded_file):
 
 # 导出供主程序调用的 UI 渲染入口
 def render_ui():
-    st.header(f"📊 运营表格一键智能转化 {MODULE_VERSION}")
-    st.markdown("上传原始运营 Excel 表格，自动截取有效区域、智能缩减商品标题（6~7字），并格式化输出标准清单。")
+    from modules import ui_theme
+    ui_theme.page_header(
+        "运营表格智能转化",
+        "上传原始运营 Excel，自动截取有效区域、智能缩减商品标题（6~7 字），并输出格式化的标准清单。",
+        eyebrow="Excel Automation",
+        tag=f"v{MODULE_VERSION}",
+    )
 
-    uploaded_file = st.file_uploader("📂 请选择需要转化的 Excel 文件 (.xlsx, .xls)", type=["xlsx", "xls"])
+    uploaded_file = st.file_uploader("选择需要转化的 Excel 文件 (.xlsx / .xls)", type=["xlsx", "xls"])
 
     if uploaded_file is not None:
         try:
@@ -402,12 +407,13 @@ def render_ui():
                 except Exception as e:
                     print(f"Record excel cleaning error: {e}")
 
-            st.success("🎉 表格转化成功！提效战绩已实时同步。")
-            st.subheader("📋 转换数据预览 (前 10 行)")
+            st.success("表格转化完成，提效数据已同步。")
+            ui_theme.section_title("数据预览 · 前 10 行")
             st.dataframe(df_result.head(10), use_container_width=True)
             
             st.download_button(
-                label="📥 点击下载转化后的标准清单 Excel",
+                label="下载标准清单 Excel",
+                type="primary",
                 data=output_buffer,
                 file_name=get_download_filename(),
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
