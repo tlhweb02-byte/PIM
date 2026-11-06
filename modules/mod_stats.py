@@ -236,28 +236,30 @@ def get_achievement_badge(hours):
         return "👑 机械劳动终结者", "无敌！机器一响黄金万两，您已彻底解放团队双手！"
 
 def render_bottom_panel():
-    st.markdown("---")
+    from modules import ui_theme
     
     today_str = get_today_key()
     this_month_str = today_str[:7]
     this_year_str = today_str[:4]
     
-    st.subheader("🏆 团队提效仪表盘 (Data Dashboard)")
-    
+    st.markdown("---")
+    ui_theme.section_title("团队提效概览")
+
     period_mode = st.radio(
-        "选择统计时间维度：",
-        ["📅 今日战报", "📆 本月汇总", "🚩 本年汇总", "🏆 历史全量累计"],
+        "统计维度",
+        ["今日", "本月", "本年", "累计"],
         horizontal=True,
+        label_visibility="collapsed",
         key="bottom_dashboard_period_mode"
     )
     
-    if period_mode == "📅 今日战报":
+    if period_mode == "今日":
         prefix = today_str
         sub_title = f"今日 ({today_str})"
-    elif period_mode == "📆 本月汇总":
+    elif period_mode == "本月":
         prefix = this_month_str
         sub_title = f"本月 ({this_month_str})"
-    elif period_mode == "🚩 本年汇总":
+    elif period_mode == "本年":
         prefix = this_year_str
         sub_title = f"本年 ({this_year_str} 年)"
     else:
@@ -277,19 +279,23 @@ def render_bottom_panel():
     saved_gb_str = format_bytes_to_gb(saved_bytes)
     badge, slogan = get_achievement_badge(hours_saved)
     
-    st.caption(f"📅 统计区间：**{sub_title}** | 自动化中台实时同步提效战果 ⚡")
+    st.caption(f"统计区间：{sub_title}")
     
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("🖼️ 压缩大图", f"{compressed_images} 张")
-    col2.metric("💾 节省 GB 空间", saved_gb_str)
-    col3.metric("📊 清洗 Excel 脏表", f"{excel_cleaned} 个")
-    col4.metric("⏱️ 节约重复劳动", f"{hours_saved:.1f} 小时")
-        
-    st.success(f"**{badge}**｜{slogan} （区间内累计为团队免除 **{hours_saved:.1f}** 小时“机械重复劳动”）")
+    col1.metric("压缩图片", f"{compressed_images} 张")
+    col2.metric("节省空间", saved_gb_str)
+    col3.metric("清洗表格", f"{excel_cleaned} 个")
+    col4.metric("节约工时", f"{hours_saved:.1f} 小时")
+
+    st.caption(f"{badge} · {slogan}")
 
 def render_ui():
-    st.header("🏆 团队提效仪表盘 (Data Dashboard)")
-    st.markdown("记录团队通过中台完成的自动化提效战果，支持按**年、月、日**精准追溯明细与全量统计！")
+    from modules import ui_theme
+    ui_theme.page_header(
+        "团队提效仪表盘",
+        "记录团队通过中台完成的自动化提效成果，支持按年、月、日追溯明细与全量统计。",
+        eyebrow="Dashboard",
+    )
     
     all_data, err = _load_all_records()
     if err:
@@ -303,10 +309,10 @@ def render_ui():
         
     c_y, c_m = st.columns(2)
     with c_y:
-        selected_year = st.selectbox("🗓️ 选择统计年份：", ["全部年份"] + years)
+        selected_year = st.selectbox("统计年份", ["全部年份"] + years)
     with c_m:
         months_in_year = sorted(list(set(d[:7] for d in dates if selected_year == "全部年份" or d.startswith(selected_year))), reverse=True)
-        selected_month = st.selectbox("📆 选择统计月份：", ["全部月份"] + months_in_year)
+        selected_month = st.selectbox("统计月份", ["全部月份"] + months_in_year)
         
     if selected_month != "全部月份":
         prefix = selected_month
@@ -326,16 +332,15 @@ def render_ui():
     saved_gb_str = format_bytes_to_gb(saved_bytes)
     badge, slogan = get_achievement_badge(hours_saved)
     
-    st.info(f"🏅 **【{label_text}】勋章：{badge}**\n\n💬 {slogan}")
-    
+    ui_theme.section_title(label_text)
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("🖼️ 压缩大图数量", f"{compressed_images} 张")
-    c2.metric("💾 节省空间大小", saved_gb_str)
-    c3.metric("📊 清洗脏表数量", f"{excel_cleaned} 个")
-    c4.metric("⏱️ 节约重复工时", f"{hours_saved:.1f} 小时")
-    
-    st.markdown("---")
-    st.subheader("📋 每日历史提效明细账单")
+    c1.metric("压缩图片", f"{compressed_images} 张")
+    c2.metric("节省空间", saved_gb_str)
+    c3.metric("清洗表格", f"{excel_cleaned} 个")
+    c4.metric("节约工时", f"{hours_saved:.1f} 小时")
+    st.caption(f"{badge} · {slogan}")
+
+    ui_theme.section_title("每日明细")
     
     table_rows = []
     for d in dates:
@@ -361,6 +366,6 @@ def render_ui():
     else:
         st.write("暂无对应时间段的提效明细数据。")
         
-    if st.button("🔄 刷新数据"):
+    if st.button("刷新数据"):
         _load_all_records.clear()
         st.rerun()

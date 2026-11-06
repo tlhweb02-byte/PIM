@@ -2,7 +2,7 @@ from PIL import Image
 import time as _time
 import streamlit as st
 
-from modules import mod_auth
+from modules import ui_theme
 
 try:
   from .baozun_api import BaozunExpandAPI
@@ -86,13 +86,7 @@ def _run_expand_task(status_box, task, api):
         label="🎉 扩图生成完成！", state="complete", expanded=False
     )
 
-    # 生成成功 → 消耗 1 次免费体验（管理员不扣；扣减失败不影响看结果）
-    try:
-      mod_auth.consume_quota(st.session_state.get("auth_user", ""))
-    except Exception as e:
-      print(f"记录扩图消耗次数失败: {e}")
-
-    st.subheader("3. 生成结果")
+    ui_theme.section_title("03 · 生成结果")
     grid_cols = st.columns(len(result_urls))
     for idx, url in enumerate(result_urls):
       with grid_cols[idx]:
@@ -105,33 +99,17 @@ def _run_expand_task(status_box, task, api):
 
 
 def render_ui():
-  st.title("🎨 宝尊智能扩图 (ROSS)")
-  st.caption("全自动智能扩图中台，自动维护鉴权并调用宝尊 ROSS 引擎扩展背景。")
-
-  # ===== 登录与免费次数校验（仅注册用户可用，管理员不限） =====
-  username = mod_auth.current_user()
-  if not username:
-    st.warning(
-        "🔒 **该功能需要登录后使用**：请在左侧「用户中心」登录或注册"
-        "（新用户赠送免费体验次数）。"
-    )
-    return
-
-  remaining = mod_auth.get_remaining(username)
-  if remaining == 0:
-    st.error("😢 **次数已用完**。请发送邮件联系管理员申请增加次数。")
-    return
-
-  if remaining < 0:
-    quota_text = "♾️ 不限次数（管理员）"
-  else:
-    quota_text = f"剩余次数：**{remaining}** 次（成功生成 1 次扣 1 次）"
-  st.info(f"👤 当前用户：**{username}** ｜ 🎨 {quota_text}")
+  ui_theme.page_header(
+      "宝尊智能扩图",
+      "调用宝尊 ROSS 引擎智能扩展图片背景，鉴权由系统自动维护。",
+      eyebrow="AI Image Expand",
+      tag="ROSS",
+  )
 
   col_left, col_right = st.columns(2)
 
   with col_left:
-    st.subheader("1. 上传图片")
+    ui_theme.section_title("01 · 上传图片")
     uploaded_file = st.file_uploader(
         "选择图片", type=["jpg", "jpeg", "png", "webp"]
     )
@@ -161,9 +139,9 @@ def render_ui():
       )
 
   with col_right:
-    st.subheader("2. 扩图参数设置")
+    ui_theme.section_title("02 · 扩图参数")
 
-    st.write("**扩展边距增加距离 (px)**")
+    st.caption("扩展边距 (px)")
     m_col1, m_col2 = st.columns(2)
     with m_col1:
       top_d = st.number_input("上边距 (topDistance)", value=140, step=10)
@@ -193,7 +171,7 @@ def render_ui():
     gen_num = st.slider("生成图片数量", min_value=1, max_value=4, value=1)
 
     start_btn = st.button(
-        "✨ 立即生成", type="primary", disabled=(not uploaded_file)
+        "立即生成", type="primary", use_container_width=True, disabled=(not uploaded_file)
     )
 
   # ============ 任务状态机 ============
