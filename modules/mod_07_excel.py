@@ -385,38 +385,32 @@ def process_excel(uploaded_file):
     output_buffer.seek(0)
     return df, output_buffer
 
-# 导出供主程序调用的 UI 渲染入口
 def render_ui():
-    from modules import ui_theme
-    ui_theme.page_header(
-        "运营表格智能转化",
-        "上传原始运营 Excel，自动截取有效区域、智能缩减商品标题（6~7 字），并输出格式化的标准清单。",
-        eyebrow="Excel Automation",
-        tag=f"v{MODULE_VERSION}",
+    st.title("表格转化", anchor=False)
+
+    uploaded_file = st.file_uploader(
+        "运营 Excel", type=["xlsx", "xls"], label_visibility="collapsed"
     )
+    if uploaded_file is None:
+        return
 
-    uploaded_file = st.file_uploader("选择需要转化的 Excel 文件 (.xlsx / .xls)", type=["xlsx", "xls"])
-
-    if uploaded_file is not None:
+    try:
+        with st.spinner("转换中..."):
+            df_result, output_buffer = process_excel(uploaded_file)
         try:
-            with st.spinner("正在智能转换表格，请稍候..."):
-                df_result, output_buffer = process_excel(uploaded_file)
-                
-                try:
-                    mod_stats.record_excel_cleaning(1)
-                except Exception as e:
-                    print(f"Record excel cleaning error: {e}")
-
-            st.success("表格转化完成，提效数据已同步。")
-            ui_theme.section_title("数据预览 · 前 10 行")
-            st.dataframe(df_result.head(10), use_container_width=True)
-            
-            st.download_button(
-                label="下载标准清单 Excel",
-                type="primary",
-                data=output_buffer,
-                file_name=get_download_filename(),
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            mod_stats.record_excel_cleaning(1)
         except Exception as e:
-            st.error(f"❌ 转换过程中发生错误: {e}")
+            print(f"Record excel cleaning error: {e}")
+    except Exception as e:
+        st.error(f"转换失败：{e}")
+        return
+
+    st.download_button(
+        label="下载标准清单",
+        data=output_buffer,
+        file_name=get_download_filename(),
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type="primary",
+        on_click="ignore",
+    )
+    st.dataframe(df_result.head(10), use_container_width=True)

@@ -10,10 +10,13 @@ toolbarMode = "minimal"
 
 [theme]
 base = "light"
+font = "-apple-system, BlinkMacSystemFont, 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif"
 primaryColor = "#18181B"
-backgroundColor = "#F7F7F5"
-secondaryBackgroundColor = "#F1F1EE"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F4F5"
 textColor = "#18181B"
-borderColor = "#E8E8E4"
+borderColor = "#E4E4E7"
+showWidgetBorder = true
 baseRadius = "8px"
-showSidebarBorder = true
+headingFontSizes = ["1.75rem", "1.25rem", "1rem"]
+headingFontWeights = [600, 600, 600]

@@ -2,8 +2,6 @@ from PIL import Image
 import time as _time
 import streamlit as st
 
-from modules import ui_theme
-
 try:
   from .baozun_api import BaozunExpandAPI
 except ImportError:
@@ -86,92 +84,53 @@ def _run_expand_task(status_box, task, api):
         label="🎉 扩图生成完成！", state="complete", expanded=False
     )
 
-    ui_theme.section_title("03 · 生成结果")
-    grid_cols = st.columns(len(result_urls))
-    for idx, url in enumerate(result_urls):
-      with grid_cols[idx]:
-        st.image(url, caption=f"方案 {idx + 1}", use_container_width=True)
-        st.markdown(
-            f"[点击下载图片]({url})", unsafe_allow_html=True
-        )
+    for col, url in zip(st.columns(len(result_urls)), result_urls):
+      col.image(url, use_container_width=True)
+      col.link_button("下载", url, use_container_width=True)
   except Exception as e:
     status_box.update(label=f"❌ 扩图失败: {str(e)}", state="error")
 
 
 def render_ui():
-  ui_theme.page_header(
-      "宝尊智能扩图",
-      "调用宝尊 ROSS 引擎智能扩展图片背景，鉴权由系统自动维护。",
-      eyebrow="AI Image Expand",
-      tag="ROSS",
-  )
+  st.title("智能扩图", anchor=False)
 
   col_left, col_right = st.columns(2)
 
   with col_left:
-    ui_theme.section_title("01 · 上传图片")
+    # 大小上限由 .streamlit/config.toml 的 maxUploadSize 统一限制
     uploaded_file = st.file_uploader(
-        "选择图片", type=["jpg", "jpeg", "png", "webp"]
+        "图片", type=["jpg", "jpeg", "png", "webp"], label_visibility="collapsed"
     )
-
-    # 业务限制：禁止上传超过 10MB 的图片
-    MAX_UPLOAD_MB = 10
-    MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
-    if uploaded_file is not None:
-      file_size = getattr(uploaded_file, "size", None)
-      if file_size is None:
-        file_size = len(uploaded_file.getvalue())
-      if file_size > MAX_UPLOAD_BYTES:
-        st.error(
-            f"❌ 图片大小超过 {MAX_UPLOAD_MB}MB 限制"
-            f"（当前 {file_size / 1024 / 1024:.1f}MB），请压缩后再上传。"
-        )
-        uploaded_file = None  # 视为未上传：不预览、不生成
-
     orig_w, orig_h = 800, 800
     if uploaded_file:
       image = Image.open(uploaded_file)
       orig_w, orig_h = image.size
-      st.image(
-          image,
-          caption=f"原图预览 ({orig_w}x{orig_h})",
-          use_container_width=True,
-      )
+      st.image(image, caption=f"{orig_w} × {orig_h}", use_container_width=True)
 
   with col_right:
-    ui_theme.section_title("02 · 扩图参数")
+    m1, m2, m3, m4 = st.columns(4)
+    top_d = m1.number_input("上边距", value=140, step=10)
+    bottom_d = m2.number_input("下边距", value=140, step=10)
+    left_d = m3.number_input("左边距", value=205, step=10)
+    right_d = m4.number_input("右边距", value=205, step=10)
 
-    st.caption("扩展边距 (px)")
-    m_col1, m_col2 = st.columns(2)
-    with m_col1:
-      top_d = st.number_input("上边距 (topDistance)", value=140, step=10)
-      left_d = st.number_input("左边距 (leftDistance)", value=205, step=10)
-    with m_col2:
-      bottom_d = st.number_input("下边距 (bottomDistance)", value=140, step=10)
-      right_d = st.number_input("右边距 (rightDistance)", value=205, step=10)
-
-    calc_bg_w = orig_w + left_d + right_d if uploaded_file else 800
-    calc_bg_h = orig_h + top_d + bottom_d if uploaded_file else 800
-
-    bg_w = st.number_input(
-        "目标画布总宽度 (px)",
-        value=calc_bg_w,
+    # 画布默认 = 原图 + 边距，可手动覆盖
+    c1, c2 = st.columns(2)
+    bg_w = c1.number_input(
+        "画布宽度",
+        value=orig_w + left_d + right_d if uploaded_file else 800,
         min_value=orig_w,
         step=50,
-        help="自动计算：原图宽度 + 左边距 + 右边距",
     )
-    bg_h = st.number_input(
-        "目标画布总高度 (px)",
-        value=calc_bg_h,
+    bg_h = c2.number_input(
+        "画布高度",
+        value=orig_h + top_d + bottom_d if uploaded_file else 800,
         min_value=orig_h,
         step=50,
-        help="自动计算：原图高度 + 上边距 + 下边距",
     )
-
-    gen_num = st.slider("生成图片数量", min_value=1, max_value=4, value=1)
-
+    gen_num = st.slider("生成数量", min_value=1, max_value=4, value=1)
     start_btn = st.button(
-        "立即生成", type="primary", use_container_width=True, disabled=(not uploaded_file)
+        "生成", type="primary", disabled=not uploaded_file, use_container_width=True
     )
 
   # ============ 任务状态机 ============
@@ -211,7 +170,7 @@ def render_ui():
       if api is None:
         # 等待人工输入验证码（界面下方会显示输入框）
         status_box.update(
-            label="📩 验证码已发送到邮箱，自动读取超时，请在下方手动输入",
+            label="请输入邮箱验证码",
             state="running",
         )
       else:
@@ -221,12 +180,8 @@ def render_ui():
   # ============ 手动验证码输入 ============
   pending_api = st.session_state.get("baozun_otp_pending_api")
   if pending_api is not None:
-    st.warning(
-        "验证码邮件已发送到公司邮箱（自动转发到 QQ）。自动读取超时，"
-        "请查看手机/邮箱里的验证码并手动输入："
-    )
-    code = st.text_input("6 位验证码", key="baozun_manual_otp", max_chars=6)
-    if st.button("✅ 提交验证码并继续", type="primary", key="baozun_otp_submit"):
+    code = st.text_input("邮箱验证码", key="baozun_manual_otp", max_chars=6)
+    if st.button("继续", type="primary", key="baozun_otp_submit"):
       code = (code or "").strip()
       if not (len(code) == 6 and code.isdigit()):
         st.error("请输入 6 位数字验证码")
