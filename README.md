@@ -4,7 +4,7 @@
 
 | 页面 | 地址 | 作用 |
 |---|---|---|
-| 表格转化 | `/excel` | 运营 Excel → 标准清单 |
+| 表格转化 | `/`（首页） | 运营 Excel → 标准清单 |
 | 图片压缩 | `/compress` | 图片或 ZIP 批量压缩，ZIP 保留目录结构 |
 | 智能扩图 | `/expand` | 宝尊 ROSS 引擎扩展图片背景 |
 | 品牌字体 | `/fonts` | Helvetica Neue · NowText 字体包 |
