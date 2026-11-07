@@ -7,7 +7,7 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from modules.mod_07_excel import (
-    get_component_example, get_download_filename, process_excel, simplify_title,
+    MODULE_VERSION, get_component_example, get_download_filename, process_excel, simplify_title,
 )
 
 
@@ -120,6 +120,7 @@ class ExcelTitleTests(unittest.TestCase):
         app = AppTest.from_string('from modules.mod_07_excel import render_ui\nrender_ui()').run()
         self.assertEqual(len(app.exception), 0)
         self.assertEqual(app.title[0].value, '表格转化')
+        self.assertEqual(app.caption[0].value, f'v{MODULE_VERSION}')
 
 
 if __name__ == '__main__':

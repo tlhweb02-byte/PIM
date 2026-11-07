@@ -387,6 +387,7 @@ def process_excel(uploaded_file):
 
 def render_ui():
     st.title("表格转化", anchor=False)
+    st.caption(f"v{MODULE_VERSION}")
 
     uploaded_file = st.file_uploader(
         "运营 Excel", type=["xlsx", "xls"], label_visibility="collapsed"
