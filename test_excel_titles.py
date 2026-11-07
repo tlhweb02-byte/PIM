@@ -7,7 +7,7 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from modules.mod_07_excel import (
-    MODULE_VERSION, get_component_example, get_download_filename, process_excel, simplify_title,
+    get_component_example, get_download_filename, process_excel, simplify_title,
 )
 
 
@@ -115,13 +115,11 @@ class ExcelTitleTests(unittest.TestCase):
         self.assertEqual(get_download_filename(datetime(2026, 12, 31, 17, tzinfo=timezone.utc)),
                          '1月1日线框提取.xlsx')
 
-    def test_page_version(self):
+    def test_page_renders(self):
         from streamlit.testing.v1 import AppTest
         app = AppTest.from_string('from modules.mod_07_excel import render_ui\nrender_ui()').run()
         self.assertEqual(len(app.exception), 0)
-        header_html = ''.join(m.value for m in app.markdown)
-        self.assertIn('运营表格智能转化', header_html)
-        self.assertIn(f'v{MODULE_VERSION}', header_html)
+        self.assertEqual(app.title[0].value, '表格转化')
 
 
 if __name__ == '__main__':

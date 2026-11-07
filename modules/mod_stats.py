@@ -223,149 +223,52 @@ def format_bytes_to_gb(saved_bytes):
         else:
             return f"{gb:.3f} GB"
 
-def get_achievement_badge(hours):
-    if hours == 0:
-        return "🌱 提效新星", "准备就绪！选择上方功能进行自动化，解锁提效成就！"
-    elif hours < 1:
-        return "⚡ 自动化启航", "打响第一枪！机械重复劳动正在被自动化中台消灭中~"
-    elif hours < 10:
-        return "🚀 提效狂魔", "战果累累！已为团队省下大量琐碎工时，产出翻倍！"
-    elif hours < 50:
-        return "🔥 生产力爆表", "炸裂！成功省出大量的团队人力，堪称团队核心引擎！"
-    else:
-        return "👑 机械劳动终结者", "无敌！机器一响黄金万两，您已彻底解放团队双手！"
-
-def render_bottom_panel():
-    from modules import ui_theme
-    
-    today_str = get_today_key()
-    this_month_str = today_str[:7]
-    this_year_str = today_str[:4]
-    
-    st.markdown("---")
-    ui_theme.section_title("团队提效概览")
-
-    period_mode = st.radio(
-        "统计维度",
-        ["今日", "本月", "本年", "累计"],
-        horizontal=True,
-        label_visibility="collapsed",
-        key="bottom_dashboard_period_mode"
-    )
-    
-    if period_mode == "今日":
-        prefix = today_str
-        sub_title = f"今日 ({today_str})"
-    elif period_mode == "本月":
-        prefix = this_month_str
-        sub_title = f"本月 ({this_month_str})"
-    elif period_mode == "本年":
-        prefix = this_year_str
-        sub_title = f"本年 ({this_year_str} 年)"
-    else:
-        prefix = ""
-        sub_title = "历史全量累计"
-        
-    stats, err = aggregate_stats_by_prefix(prefix)
-    
-    if err:
-        st.warning(f"⚠️ 云端数据库连接提示：{err}")
-        
-    excel_cleaned = stats.get("excel_cleaned", 0)
-    compressed_images = stats.get("compressed_images", 0)
-    saved_bytes = stats.get("saved_bytes", 0)
-    
-    hours_saved = calculate_hours_saved(excel_cleaned, compressed_images)
-    saved_gb_str = format_bytes_to_gb(saved_bytes)
-    badge, slogan = get_achievement_badge(hours_saved)
-    
-    st.caption(f"统计区间：{sub_title}")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("压缩图片", f"{compressed_images} 张")
-    col2.metric("节省空间", saved_gb_str)
-    col3.metric("清洗表格", f"{excel_cleaned} 个")
-    col4.metric("节约工时", f"{hours_saved:.1f} 小时")
-
-    st.caption(f"{badge} · {slogan}")
-
 def render_ui():
-    from modules import ui_theme
-    ui_theme.page_header(
-        "团队提效仪表盘",
-        "记录团队通过中台完成的自动化提效成果，支持按年、月、日追溯明细与全量统计。",
-        eyebrow="Dashboard",
-    )
-    
+    st.title("数据统计", anchor=False)
+
     all_data, err = _load_all_records()
     if err:
-        st.warning(f"⚠️ 云端数据库连接提示：{err}")
-        
-    dates = sorted(list(all_data.keys()), reverse=True)
-    
-    years = sorted(list(set(d[:4] for d in dates if len(d) >= 4)), reverse=True)
-    if not years:
-        years = [get_today_key()[:4]]
-        
-    c_y, c_m = st.columns(2)
-    with c_y:
-        selected_year = st.selectbox("统计年份", ["全部年份"] + years)
-    with c_m:
-        months_in_year = sorted(list(set(d[:7] for d in dates if selected_year == "全部年份" or d.startswith(selected_year))), reverse=True)
-        selected_month = st.selectbox("统计月份", ["全部月份"] + months_in_year)
-        
-    if selected_month != "全部月份":
-        prefix = selected_month
-        label_text = f"{selected_month} 月度数据"
-    elif selected_year != "全部年份":
-        prefix = selected_year
-        label_text = f"{selected_year} 年度数据"
+        st.warning(f"云端数据库未连接：{err}")
+
+    dates = sorted(all_data.keys(), reverse=True)
+    years = sorted({d[:4] for d in dates if len(d) >= 4}, reverse=True) or [get_today_key()[:4]]
+
+    c_y, c_m, _ = st.columns([1, 1, 2])
+    year = c_y.selectbox("年份", ["全部年份"] + years, label_visibility="collapsed")
+    months = sorted({d[:7] for d in dates if year == "全部年份" or d.startswith(year)}, reverse=True)
+    month = c_m.selectbox("月份", ["全部月份"] + months, label_visibility="collapsed")
+
+    if month != "全部月份":
+        prefix = month
+    elif year != "全部年份":
+        prefix = year
     else:
         prefix = ""
-        label_text = "全量历史累计数据"
-        
+
     stats, _ = aggregate_stats_by_prefix(prefix)
     excel_cleaned = stats.get("excel_cleaned", 0)
     compressed_images = stats.get("compressed_images", 0)
-    saved_bytes = stats.get("saved_bytes", 0)
-    hours_saved = calculate_hours_saved(excel_cleaned, compressed_images)
-    saved_gb_str = format_bytes_to_gb(saved_bytes)
-    badge, slogan = get_achievement_badge(hours_saved)
-    
-    ui_theme.section_title(label_text)
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("压缩图片", f"{compressed_images} 张")
-    c2.metric("节省空间", saved_gb_str)
-    c3.metric("清洗表格", f"{excel_cleaned} 个")
-    c4.metric("节约工时", f"{hours_saved:.1f} 小时")
-    st.caption(f"{badge} · {slogan}")
 
-    ui_theme.section_title("每日明细")
-    
-    table_rows = []
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("压缩图片", f"{compressed_images} 张", border=True)
+    c2.metric("节省空间", format_bytes_to_gb(stats.get("saved_bytes", 0)), border=True)
+    c3.metric("转化表格", f"{excel_cleaned} 个", border=True)
+    c4.metric("节约工时", f"{calculate_hours_saved(excel_cleaned, compressed_images):.1f} 小时", border=True)
+
+    rows = []
     for d in dates:
-        if not prefix or d.startswith(prefix):
+        if d.startswith(prefix):
             r = all_data[d]
             c_cnt = r.get("compressed_images", 0)
             e_cnt = r.get("excel_cleaned", 0)
-            b_cnt = r.get("saved_bytes", 0)
-            h_cnt = calculate_hours_saved(e_cnt, c_cnt)
-            table_rows.append({
-                "日期 (Date)": d,
-                "压缩大图 (张)": c_cnt,
-                "节省空间": format_bytes_to_gb(b_cnt),
-                "清洗脏表 (个)": e_cnt,
-                "释放重复工时 (小时)": h_cnt,
-                "最后更新时间": r.get("last_updated", "")
+            rows.append({
+                "日期": d,
+                "压缩图片": c_cnt,
+                "节省空间": format_bytes_to_gb(r.get("saved_bytes", 0)),
+                "转化表格": e_cnt,
+                "节约工时": calculate_hours_saved(e_cnt, c_cnt),
+                "更新时间": r.get("last_updated", ""),
             })
-            
-    if table_rows:
+    if rows:
         import pandas as pd
-        df_display = pd.DataFrame(table_rows)
-        st.dataframe(df_display, use_container_width=True)
-    else:
-        st.write("暂无对应时间段的提效明细数据。")
-        
-    if st.button("刷新数据"):
-        _load_all_records.clear()
-        st.rerun()
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
