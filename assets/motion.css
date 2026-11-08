@@ -1,3 +1,6 @@
+/* 顶部栏：Logo 在左，导航在右 */
+header div:has(> div > div > [data-testid="stTopNavLinkContainer"]) { justify-content: flex-end; }
+
 /* 动效：页面内容淡入上浮、依次出现；控件悬停轻微上浮。系统开启"减少动态效果"时全部关闭。 */
 :root {
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
@@ -11,17 +14,17 @@
 @media (prefers-reduced-motion: no-preference) {
   /* 主内容逐个淡入上浮 */
   [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] > * {
-    animation: rise 0.9s var(--ease) both;
+    animation: rise 1.2s var(--ease) both;
   }
-  [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] > :nth-child(2) { animation-delay: 0.06s; }
-  [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] > :nth-child(3) { animation-delay: 0.12s; }
-  [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] > :nth-child(4) { animation-delay: 0.18s; }
-  [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] > :nth-child(n+5) { animation-delay: 0.24s; }
+  [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] > :nth-child(2) { animation-delay: 0.08s; }
+  [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] > :nth-child(3) { animation-delay: 0.16s; }
+  [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] > :nth-child(4) { animation-delay: 0.24s; }
+  [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] > :nth-child(n+5) { animation-delay: 0.32s; }
 
   /* 按钮、卡片、上传区：悬停上浮，按下回弹 */
   .stButton button, .stDownloadButton button, .stLinkButton a,
   [data-testid="stMetric"], [data-testid="stFileUploaderDropzone"] {
-    transition: transform 0.4s var(--ease), box-shadow 0.4s var(--ease), background-color 0.2s ease;
+    transition: transform 0.5s var(--ease), box-shadow 0.5s var(--ease), background-color 0.25s ease;
   }
   .stButton button:not(:disabled):hover, .stDownloadButton button:hover, .stLinkButton a:hover,
   [data-testid="stMetric"]:hover {
@@ -36,5 +39,5 @@
 
   /* 顶部导航与图片 */
   header a { transition: background-color 0.25s ease, color 0.25s ease; }
-  [data-testid="stImage"] img { animation: rise 1.1s var(--ease) both; }
+  [data-testid="stImage"] img { animation: rise 1.4s var(--ease) both; }
 }
