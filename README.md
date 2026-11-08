@@ -23,7 +23,7 @@ streamlit run app.py
 
 - `app.py`：页面注册与导航，新增页面只需在 `pages` 列表里加一行
 - `modules/`：每个页面一个模块，入口统一为 `render_ui()`
-- 视觉只用 `.streamlit/config.toml` 的 `[theme]`，无自定义 CSS
+- 视觉：`.streamlit/config.toml` 的 `[theme]`；动效：`assets/motion.css`（系统开启“减少动态效果”时自动关闭）
 
 ## 测试
 
