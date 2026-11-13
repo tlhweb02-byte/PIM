@@ -4,7 +4,8 @@
 
 | 页面 | 地址 | 作用 |
 |---|---|---|
-| 表格转化 | `/`（首页） | 运营 Excel → 标准清单 |
+| 首页 | `/` | 分屏介绍各工具，背景为随滚动变化的 Nike 粒子画布 |
+| 表格转化 | `/excel` | 运营 Excel → 标准清单 |
 | 图片压缩 | `/compress` | 图片或 ZIP 批量压缩，ZIP 保留目录结构 |
 | 智能扩图 | `/expand` | 宝尊 ROSS 引擎扩展图片背景 |
 | 品牌字体 | `/fonts` | Helvetica Neue · NowText 字体包 |
@@ -23,6 +24,7 @@ streamlit run app.py
 
 - `app.py`：页面注册与导航，新增页面只需在 `pages` 列表里加一行
 - `modules/`：每个页面一个模块，入口统一为 `render_ui()`
+- 首页粒子：`assets/particles.js`（纯 Canvas 2D，无依赖；移动端自动减少粒子并关闭鼠标物理，离开首页自动销毁）
 - 视觉：`.streamlit/config.toml` 的 `[theme]`；动效：`assets/motion.css`（系统开启“减少动态效果”时自动关闭）
 
 ## 测试
