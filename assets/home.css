@@ -1,0 +1,18 @@
+/* 首页：全屏分屏布局，文字在左，右侧留给粒子画布 */
+[data-testid="stMain"] { position: relative; z-index: 1; }
+[data-testid="stApp"] header { background: transparent; }
+
+[class*="st-key-home-sec-"] {
+  min-height: calc(100vh - 7rem);
+  max-width: min(520px, 46%);
+  justify-content: center;
+  gap: 0.75rem;
+}
+.st-key-home-sec-0 h1 { font-size: clamp(2.6rem, 5vw, 4.25rem) !important; letter-spacing: -0.035em; line-height: 1.05; }
+[class*="st-key-home-sec-"] h2 { font-size: clamp(1.9rem, 3.2vw, 2.75rem) !important; letter-spacing: -0.03em; }
+[class*="st-key-home-sec-"] p { font-size: 1.05rem; color: #52525B; }
+[class*="st-key-home-sec-"] [data-testid="stPageLink"] a { padding-left: 0; }
+
+@media (max-width: 768px) {
+  [class*="st-key-home-sec-"] { max-width: 100%; min-height: calc(100vh - 5rem); }
+}

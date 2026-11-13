@@ -37,7 +37,9 @@ class PageTests(unittest.TestCase):
     def test_app_navigation_runs(self):
         app = AppTest.from_file("app.py").run(timeout=30)
         self.assertEqual(len(app.exception), 0)
-        self.assertEqual(app.title[0].value, "表格转化")
+        self.assertEqual(app.title[0].value, "作图自动化中台")
+        # 首页每个章节都有标题，并带粒子脚本
+        self.assertEqual([h.value for h in app.header], ["表格转化", "图片压缩", "智能扩图", "数据统计"])
 
 
 class CompressTests(unittest.TestCase):
