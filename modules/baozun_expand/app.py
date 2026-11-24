@@ -85,7 +85,15 @@ def _run_job(job, status):
     status.write("上传图片...")
     attachment = api.upload_image(job["file"], job["filename"])
     status.write("提交扩图任务...")
-    job["record"] = api.submit_image_expand(original_attachment_code=attachment, **job["params"])
+    p = job["params"]
+    job["record"] = api.submit_image_expand(
+        original_attachment_code=attachment,
+        top_distance=p["top_d"], bottom_distance=p["bottom_d"],
+        left_distance=p["left_d"], right_distance=p["right_d"],
+        background_weight=p["bg_w"], background_height=p["bg_h"],
+        original_weight=p["orig_w"], original_height=p["orig_h"],
+        generated_num=p["generated_num"],
+    )
   status.write("AI 生成中，通常需要 1 分钟左右...")
   waited = st.empty()
   urls = api.get_image_expand_result(

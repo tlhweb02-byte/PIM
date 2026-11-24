@@ -258,5 +258,50 @@ class ExpandPageTests(unittest.TestCase):
         self.assertEqual(len([b for b in at.get("link_button")]), 2)
 
 
+class NewJobTests(unittest.TestCase):
+    def test_new_job_calls_real_api_signatures(self):
+        """从"点击生成"开始走完整流程；假接口按真实方法签名校验参数，防止传错参数名"""
+        import inspect
+        from streamlit.testing.v1 import AppTest
+
+        def script():
+            import inspect
+            import streamlit as st
+            from modules.baozun_expand import app as m
+            from modules.baozun_expand.baozun_api import BaozunExpandAPI as Real
+
+            class Api:
+                pending = None
+
+                def upload_image(self, *a, **kw):
+                    inspect.signature(Real.upload_image).bind(None, *a, **kw)
+                    return "ATT1"
+
+                def submit_image_expand(self, *a, **kw):
+                    inspect.signature(Real.submit_image_expand).bind(None, *a, **kw)
+                    st.session_state["submitted"] = kw
+                    return "REC1"
+
+                def get_image_expand_result(self, *a, **kw):
+                    inspect.signature(Real.get_image_expand_result).bind(None, *a, **kw)
+                    return ["https://example.com/a.png"]
+
+            m.get_api = lambda: Api()
+            if "seeded" not in st.session_state:
+                st.session_state["seeded"] = True
+                c = m.compute_canvas(400, 400, None, 0.4, "居中")
+                st.session_state["exp_job"] = {"file": b"x", "filename": "a.jpg", "record": None,
+                                               "params": {**c, "orig_w": 400, "orig_h": 400, "generated_num": 1}}
+            m.render_ui()
+
+        at = AppTest.from_function(script).run(timeout=30)
+        self.assertEqual(len(at.exception), 0)
+        self.assertEqual(at.session_state["exp_results"], ["https://example.com/a.png"])
+        sub = at.session_state["submitted"]
+        self.assertEqual((sub["background_weight"], sub["background_height"], sub["top_distance"],
+                          sub["left_distance"], sub["original_weight"], sub["generated_num"]),
+                         (560, 560, 80, 80, 400, 1))
+
+
 if __name__ == "__main__":
     unittest.main()
