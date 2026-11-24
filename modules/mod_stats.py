@@ -271,4 +271,4 @@ def render_ui():
             })
     if rows:
         import pandas as pd
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)

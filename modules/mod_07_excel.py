@@ -414,4 +414,4 @@ def render_ui():
         type="primary",
         on_click="ignore",
     )
-    st.dataframe(df_result.head(10), use_container_width=True)
+    st.dataframe(df_result.head(10), width="stretch")
