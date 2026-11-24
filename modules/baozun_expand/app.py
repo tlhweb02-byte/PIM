@@ -17,35 +17,49 @@ ANCHORS = ["居中", "靠上", "靠下", "靠左", "靠右"]
 # ---------------------------------------------------------------------------
 # 纯函数（可单独测试）
 # ---------------------------------------------------------------------------
-LARGE_UPLOAD = 2 * 1024 * 1024  # 超过 2MB 的不透明图片转成 JPEG 再上传
+# Streamlit Cloud（海外）到宝尊（国内）的线路对大文件很不稳定，上传前压到这个大小以内
+UPLOAD_TARGET = int(1.5 * 1024 * 1024)
 
 
 def prepare_image(data: bytes, filename: str):
   """准备上传的图片，返回 (字节, 文件名, 宽, 高)：
   - 按 EXIF 方向转正（手机竖拍照片）；
-  - 超过 2MB 且没有透明背景的图片转成高质量 JPEG（分辨率不变），
-    海外服务器传到宝尊更快、不易超时。
-  其余情况原样上传。"""
+  - 超过 1.5MB 时先降低 JPEG 质量（分辨率不变），仍不够再依次缩小到长边 2560 / 2048 / 1600；
+    透明图保持 PNG，只缩小尺寸。
+  小图且无需转正时原样上传。"""
   img = Image.open(io.BytesIO(data))
   rotated = img.getexif().get(0x0112, 1) not in (1, None)
-  if not rotated and len(data) <= LARGE_UPLOAD:
+  if not rotated and len(data) <= UPLOAD_TARGET:
     return data, filename, img.width, img.height
   if rotated:
     img = ImageOps.exif_transpose(img)
   has_alpha = img.mode in ("RGBA", "LA", "PA") or (img.mode == "P" and "transparency" in img.info)
-  if has_alpha and not rotated:
-    return data, filename, img.width, img.height  # 透明图保持原样
-  buf = io.BytesIO()
-  if has_alpha:
-    img.save(buf, format="PNG")
-    ext = ".png"
-  else:
-    img.convert("RGB").save(buf, format="JPEG", quality=92)
-    ext = ".jpg"
-  out = buf.getvalue()
-  if not rotated and len(out) >= len(data):
-    return data, filename, img.width, img.height
-  return out, filename.rsplit(".", 1)[0] + ext, img.width, img.height
+  ext = ".png" if has_alpha else ".jpg"
+  base = filename.rsplit(".", 1)[0]
+
+  best = None
+  for side in (None, 2560, 2048, 1600):
+    if side and max(img.size) <= side:
+      continue
+    im = img
+    if side:
+      im = img.copy()
+      im.thumbnail((side, side), Image.LANCZOS)
+    for quality in ((None,) if has_alpha else (92, 85, 78)):
+      buf = io.BytesIO()
+      if has_alpha:
+        im.save(buf, format="PNG", optimize=True)
+      else:
+        im.convert("RGB").save(buf, format="JPEG", quality=quality, optimize=True)
+      out = buf.getvalue()
+      if best is None or len(out) < len(best[0]):
+        best = (out, base + ext, im.width, im.height)
+      if len(out) <= UPLOAD_TARGET:
+        return best
+  # 实在压不到目标大小：用最小的结果（转正后的图），否则原样
+  if rotated or len(best[0]) < len(data):
+    return best
+  return data, filename, img.width, img.height
 
 
 def compute_canvas(ow, oh, ratio=None, pad=0.4, anchor="居中", custom=None):
@@ -151,7 +165,7 @@ def render_ui():
       tall = canvas["bg_h"] > canvas["bg_w"]
       st.image(layout_preview(image, canvas),
                width=round(480 * canvas["bg_w"] / canvas["bg_h"]) if tall else "stretch",
-               caption=f"{ow} × {oh} → {canvas['bg_w']} × {canvas['bg_h']}")
+               caption=f"{ow} × {oh} → {canvas['bg_w']} × {canvas['bg_h']} · 上传 {len(data) / 1024 / 1024:.1f}MB")
 
   no_expand = canvas and canvas["bg_w"] == image.width and canvas["bg_h"] == image.height
   with col_right:
