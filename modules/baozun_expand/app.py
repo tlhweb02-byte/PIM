@@ -17,21 +17,35 @@ ANCHORS = ["居中", "靠上", "靠下", "靠左", "靠右"]
 # ---------------------------------------------------------------------------
 # 纯函数（可单独测试）
 # ---------------------------------------------------------------------------
+LARGE_UPLOAD = 2 * 1024 * 1024  # 超过 2MB 的不透明图片转成 JPEG 再上传
+
+
 def prepare_image(data: bytes, filename: str):
-  """按 EXIF 方向把图片转正（手机竖拍照片），返回 (字节, 文件名, 宽, 高)。
-  只有确实需要旋转时才重新编码，否则原样上传。"""
+  """准备上传的图片，返回 (字节, 文件名, 宽, 高)：
+  - 按 EXIF 方向转正（手机竖拍照片）；
+  - 超过 2MB 且没有透明背景的图片转成高质量 JPEG（分辨率不变），
+    海外服务器传到宝尊更快、不易超时。
+  其余情况原样上传。"""
   img = Image.open(io.BytesIO(data))
-  if img.getexif().get(0x0112, 1) in (1, None):
+  rotated = img.getexif().get(0x0112, 1) not in (1, None)
+  if not rotated and len(data) <= LARGE_UPLOAD:
     return data, filename, img.width, img.height
-  img = ImageOps.exif_transpose(img)
+  if rotated:
+    img = ImageOps.exif_transpose(img)
+  has_alpha = img.mode in ("RGBA", "LA", "PA") or (img.mode == "P" and "transparency" in img.info)
+  if has_alpha and not rotated:
+    return data, filename, img.width, img.height  # 透明图保持原样
   buf = io.BytesIO()
-  if img.mode in ("RGBA", "LA", "P"):
+  if has_alpha:
     img.save(buf, format="PNG")
-    filename = filename.rsplit(".", 1)[0] + ".png"
+    ext = ".png"
   else:
-    img.convert("RGB").save(buf, format="JPEG", quality=95)
-    filename = filename.rsplit(".", 1)[0] + ".jpg"
-  return buf.getvalue(), filename, img.width, img.height
+    img.convert("RGB").save(buf, format="JPEG", quality=92)
+    ext = ".jpg"
+  out = buf.getvalue()
+  if not rotated and len(out) >= len(data):
+    return data, filename, img.width, img.height
+  return out, filename.rsplit(".", 1)[0] + ext, img.width, img.height
 
 
 def compute_canvas(ow, oh, ratio=None, pad=0.4, anchor="居中", custom=None):

@@ -220,9 +220,19 @@ class BaozunExpandAPI:
   def upload_image(self, file_bytes: bytes, filename: str) -> str:
     """1. 上传图片，返回附件编号"""
     for path in UPLOAD_PATHS:
-      resp = self._request(
-          "post", path, files={"file": (filename, file_bytes)}, timeout=(10, 60)
-      )
+      # 发送图片时 urllib3 套用的是"连接超时"，海外到国内传大图 10 秒不够，放宽到 60 秒。
+      # 上传不扣费，网络出错时重试一次是安全的。
+      for attempt in range(2):
+        try:
+          resp = self._request(
+              "post", path, files={"file": (filename, file_bytes)}, timeout=(60, 120)
+          )
+          break
+        except (requests.ConnectionError, requests.Timeout) as e:
+          if attempt:
+            raise ValueError(
+                f"上传图片超时（{len(file_bytes) / 1024 / 1024:.1f}MB），网络较慢，请稍后重试"
+            ) from e
       if resp.status_code in (404, 405):
         continue
       data = _json(resp)
