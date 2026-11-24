@@ -42,6 +42,15 @@ class PageTests(unittest.TestCase):
         self.assertEqual([h.value for h in app.header], ["表格转化", "图片压缩", "智能扩图", "数据统计"])
 
 
+class FontsPageTests(unittest.TestCase):
+    def test_download_link_is_baidu_pan(self):
+        from modules.mod_fonts import FONT_DOWNLOAD_URL
+        app = AppTest.from_string("from modules.mod_fonts import render_ui\nrender_ui()").run(timeout=30)
+        self.assertEqual(len(app.exception), 0)
+        self.assertTrue(FONT_DOWNLOAD_URL.startswith("https://pan.baidu.com/s/19twFj8pWxlj2SzWHMNLxTA"))
+        self.assertIn("tcss", app.caption[0].value)
+
+
 class CompressTests(unittest.TestCase):
     def test_images_and_zip_in_one_upload(self):
         inner = io.BytesIO()
