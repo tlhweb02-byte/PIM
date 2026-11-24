@@ -4,6 +4,7 @@
 页面中途被打断（用户点了别的控件）也只会继续查结果，不会重复提交扣费。
 """
 import io
+import time
 
 import streamlit as st
 from PIL import Image, ImageOps
@@ -106,14 +107,24 @@ def get_api() -> BaozunExpandAPI:
   return BaozunExpandAPI()
 
 
+def format_timing(timing: dict) -> str:
+  """把各段耗时格式化成一行，例如：上传 12 秒 · 生成 61 秒"""
+  return " · ".join(f"{k} {v:.0f} 秒" for k, v in timing.items())
+
+
 def _run_job(job, status):
-  """执行（或继续）任务：上传 → 提交 → 等结果。任务编号一拿到就写回 job。"""
+  """执行（或继续）任务：上传 → 提交 → 等结果。
+  任务编号和各段耗时一拿到就写回 job，页面被打断后继续时不会丢。"""
   api = get_api()
+  timing = job.setdefault("timing", {})
   if not job.get("record"):
-    status.write("上传图片...")
+    status.write(f"上传图片（{len(job['file']) / 1024 / 1024:.1f}MB）...")
+    t0 = time.time()
     attachment = api.upload_image(job["file"], job["filename"])
+    timing["上传"] = time.time() - t0
     status.write("提交扩图任务...")
     p = job["params"]
+    t0 = time.time()
     job["record"] = api.submit_image_expand(
         original_attachment_code=attachment,
         top_distance=p["top_d"], bottom_distance=p["bottom_d"],
@@ -122,13 +133,20 @@ def _run_job(job, status):
         original_weight=p["orig_w"], original_height=p["orig_h"],
         generated_num=p["generated_num"],
     )
-  status.write("AI 生成中，通常需要 1 分钟左右...")
+    timing["提交"] = time.time() - t0
+    job["submitted_at"] = time.time()
+  job.setdefault("submitted_at", time.time())  # 兼容没有记录提交时间的旧任务
+  status.write(" · ".join(filter(None, [format_timing(timing), "AI 生成中..."])))
   waited = st.empty()
   urls = api.get_image_expand_result(
       job["record"], expected_count=job["params"]["generated_num"],
-      on_tick=lambda s: waited.caption(f"已等待 {s} 秒"),
+      on_tick=lambda s: waited.caption(f"生成已等待 {time.time() - job['submitted_at']:.0f} 秒"),
   )
+  timing["生成"] = time.time() - job["submitted_at"]
   waited.empty()
+  p = job["params"]
+  print(f"[扩图] {p.get('bg_w')}x{p.get('bg_h')} "
+        f"{len(job['file']) / 1024 / 1024:.1f}MB {format_timing(timing)}")
   return urls
 
 
@@ -179,6 +197,7 @@ def render_ui():
     }
     state["exp_job"] = job
     state.pop("exp_results", None)
+    state.pop("exp_timing", None)
 
   # ---- 执行 / 继续任务 ----
   if job:
@@ -186,13 +205,15 @@ def render_ui():
     try:
       urls = _run_job(job, status)
       state["exp_results"] = urls
+      state["exp_timing"] = format_timing(job["timing"])
       state.pop("exp_job", None)
-      status.update(label="扩图完成", state="complete", expanded=False)
+      status.update(label=f"扩图完成 · {state['exp_timing']}", state="complete", expanded=False)
     except LoginRequired:
       status.update(label="需要邮箱验证码才能登录宝尊", state="running")
     except Exception as e:
       state.pop("exp_job", None)
-      status.update(label=f"扩图失败：{e}", state="error")
+      done = format_timing(job.get("timing", {}))
+      status.update(label=f"扩图失败：{e}" + (f"（{done}）" if done else ""), state="error")
 
   # ---- 人工验证码（自动读取邮箱超时时）----
   api = get_api()
@@ -214,6 +235,8 @@ def render_ui():
   # ---- 结果：一直保留到下一次生成 ----
   urls = state.get("exp_results")
   if urls:
+    if state.get("exp_timing"):
+      st.caption(f"耗时：{state['exp_timing']}")
     for col, url in zip(st.columns(len(urls)), urls):
       col.image(url, width="stretch")
       col.link_button("下载", url, width="stretch")

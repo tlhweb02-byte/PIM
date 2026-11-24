@@ -286,7 +286,8 @@ class ExpandPageTests(unittest.TestCase):
                 def submit_image_expand(self, **kw):
                     raise AssertionError("不应重新提交")
 
-                def get_image_expand_result(self, record, **kw):
+                def get_image_expand_result(self, record, on_tick=None, **kw):
+                    on_tick(3)  # 真实接口会回调进度，确保续查的旧任务不会出错
                     st.session_state["polled"] = record
                     return ["https://example.com/a.png", "https://example.com/b.png"]
 
@@ -301,6 +302,7 @@ class ExpandPageTests(unittest.TestCase):
         self.assertEqual(len(at.exception), 0)
         self.assertEqual(at.session_state["polled"], "REC7")
         self.assertNotIn("exp_job", at.session_state)
+        self.assertRegex(at.session_state["exp_timing"], r"^生成 \d+ 秒$")  # 续查的任务只记生成耗时
         # 结果在之后的页面刷新中仍然保留
         at.run(timeout=30)
         self.assertEqual(at.session_state["exp_results"], ["https://example.com/a.png", "https://example.com/b.png"])
@@ -346,6 +348,9 @@ class NewJobTests(unittest.TestCase):
         at = AppTest.from_function(script).run(timeout=30)
         self.assertEqual(len(at.exception), 0)
         self.assertEqual(at.session_state["exp_results"], ["https://example.com/a.png"])
+        # 分段耗时：完成后保存在页面上，并显示在结果上方
+        self.assertRegex(at.session_state["exp_timing"], r"^上传 \d+ 秒 · 提交 \d+ 秒 · 生成 \d+ 秒$")
+        self.assertTrue(any("耗时：上传" in c.value for c in at.caption))
         sub = at.session_state["submitted"]
         self.assertEqual((sub["background_weight"], sub["background_height"], sub["top_distance"],
                           sub["left_distance"], sub["original_weight"], sub["generated_num"]),
