@@ -194,23 +194,31 @@ class ExifTests(unittest.TestCase):
 
 class LargeImageTests(unittest.TestCase):
     @staticmethod
-    def _noisy_png(mode):
-        img = Image.frombytes(mode, (1100, 1100), os.urandom(1100 * 1100 * len(mode)))
+    def _noisy_png(mode, size):
+        img = Image.frombytes(mode, (size, size), os.urandom(size * size * len(mode)))
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         return buf.getvalue()
 
-    def test_large_opaque_image_is_shrunk_to_jpeg_same_size(self):
-        data = self._noisy_png("RGB")
-        self.assertGreater(len(data), 2 * 1024 * 1024)
+    def test_large_opaque_image_fits_upload_target(self):
+        from modules.baozun_expand.app import UPLOAD_TARGET
+        data = self._noisy_png("RGB", 2600)  # 随机噪点：最难压缩的情况
         out, name, w, h = prepare_image(data, "shoe.png")
-        self.assertLess(len(out), len(data))
-        self.assertEqual((name, w, h), ("shoe.jpg", 1100, 1100))
-        self.assertEqual(Image.open(io.BytesIO(out)).size, (1100, 1100))
+        self.assertLessEqual(len(out), UPLOAD_TARGET)
+        self.assertEqual(name, "shoe.jpg")
+        self.assertEqual(Image.open(io.BytesIO(out)).size, (w, h))
+        self.assertEqual(w, h)
 
-    def test_large_transparent_image_is_kept(self):
-        data = self._noisy_png("RGBA")
-        self.assertEqual(prepare_image(data, "cut.png")[:2], (data, "cut.png"))
+    def test_large_transparent_image_keeps_alpha(self):
+        data = self._noisy_png("RGBA", 1400)
+        out, name, w, h = prepare_image(data, "cut.png")
+        self.assertEqual(name, "cut.png")
+        self.assertEqual(Image.open(io.BytesIO(out)).mode, "RGBA")
+
+    def test_small_image_untouched(self):
+        buf = io.BytesIO()
+        Image.new("RGB", (300, 300), "white").save(buf, format="JPEG")
+        self.assertEqual(prepare_image(buf.getvalue(), "s.jpg")[:2], (buf.getvalue(), "s.jpg"))
 
 
 class FakeImap:
