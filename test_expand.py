@@ -120,6 +120,26 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(results, [["u1"]] * 4)
         self.assertEqual(acc.logins, 2)
 
+    def test_upload_retries_once_on_network_error(self):
+        import requests
+        calls = {"n": 0}
+
+        def flaky(token):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise requests.ConnectionError("Connection aborted: write operation timed out")
+            return {"success": True, "data": "ATT5"}
+
+        api, _, _ = make_api({"/iforce/art/image/upload/rename": flaky})
+        self.assertEqual(api.upload_image(b"x" * 10, "a.jpg"), "ATT5")
+
+        def dead(token):
+            raise requests.ConnectionError("Connection aborted")
+
+        api, _, _ = make_api({"/iforce/art/image/upload/rename": dead})
+        with self.assertRaisesRegex(ValueError, "上传图片超时"):
+            api.upload_image(b"x" * 10, "a.jpg")
+
     def test_submit_and_poll(self):
         api, _, _ = make_api({
             "/iforce/art/image/imageExpand": lambda t: {"success": True, "data": "REC42"},
@@ -170,6 +190,27 @@ class ExifTests(unittest.TestCase):
         Image.new("RGB", (60, 40)).save(buf, format="PNG")
         data, name, w, h = prepare_image(buf.getvalue(), "a.png")
         self.assertEqual((data, name, w, h), (buf.getvalue(), "a.png", 60, 40))
+
+
+class LargeImageTests(unittest.TestCase):
+    @staticmethod
+    def _noisy_png(mode):
+        img = Image.frombytes(mode, (1100, 1100), os.urandom(1100 * 1100 * len(mode)))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    def test_large_opaque_image_is_shrunk_to_jpeg_same_size(self):
+        data = self._noisy_png("RGB")
+        self.assertGreater(len(data), 2 * 1024 * 1024)
+        out, name, w, h = prepare_image(data, "shoe.png")
+        self.assertLess(len(out), len(data))
+        self.assertEqual((name, w, h), ("shoe.jpg", 1100, 1100))
+        self.assertEqual(Image.open(io.BytesIO(out)).size, (1100, 1100))
+
+    def test_large_transparent_image_is_kept(self):
+        data = self._noisy_png("RGBA")
+        self.assertEqual(prepare_image(data, "cut.png")[:2], (data, "cut.png"))
 
 
 class FakeImap:
