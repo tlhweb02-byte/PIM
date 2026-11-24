@@ -1,201 +1,183 @@
-from PIL import Image
-import time as _time
+"""智能扩图页面：选比例和原图位置 → 预览 → 生成。
+
+任务状态存在 session_state 里：提交成功后立刻记下宝尊的任务编号，
+页面中途被打断（用户点了别的控件）也只会继续查结果，不会重复提交扣费。
+"""
+import io
+
 import streamlit as st
+from PIL import Image, ImageOps
 
-try:
-  from .baozun_api import BaozunExpandAPI
-except ImportError:
-  try:
-    from modules.baozun_expand.baozun_api import BaozunExpandAPI
-  except ImportError:
-    from baozun_api import BaozunExpandAPI
+from .baozun_api import BaozunExpandAPI, LoginRequired
 
-# 自动登录会话复用时长（秒）：期间内不重复登录、不重复发送验证码邮件
-_SESSION_TTL = 2 * 3600
+RATIOS = {"原比例": None, "1:1": (1, 1), "3:4": (3, 4), "4:3": (4, 3), "9:16": (9, 16), "16:9": (16, 9), "自定义": "custom"}
+ANCHORS = ["居中", "靠上", "靠下", "靠左", "靠右"]
 
 
-def _get_api(manual_cookie: str):
-  """复用已登录的 API 会话；返回 None 表示正在等待人工输入验证码"""
-  # 已有待人工验证码的登录 → 直接返回 None（避免重复登录、重复发邮件）
-  if st.session_state.get("baozun_otp_pending_api") is not None:
-    return None
-  cached = st.session_state.get("baozun_api_cache")
-  if (
-      cached
-      and cached.get("cookie") == (manual_cookie or "")
-      and cached.get("is_manual") == bool(manual_cookie)
-      and _time.time() - cached.get("ts", 0) < _SESSION_TTL
-  ):
-    return cached["api"]
-  api = BaozunExpandAPI(manual_cookie=manual_cookie)
-  if getattr(api, "login_pending", False):
-    # 验证码已发送但自动读取超时，进入人工输入流程
-    st.session_state["baozun_otp_pending_api"] = api
-    return None
-  st.session_state["baozun_api_cache"] = {
-      "api": api,
-      "cookie": manual_cookie or "",
-      "is_manual": bool(manual_cookie),
-      "ts": _time.time(),
-  }
-  return api
+# ---------------------------------------------------------------------------
+# 纯函数（可单独测试）
+# ---------------------------------------------------------------------------
+def prepare_image(data: bytes, filename: str):
+  """按 EXIF 方向把图片转正（手机竖拍照片），返回 (字节, 文件名, 宽, 高)。
+  只有确实需要旋转时才重新编码，否则原样上传。"""
+  img = Image.open(io.BytesIO(data))
+  if img.getexif().get(0x0112, 1) in (1, None):
+    return data, filename, img.width, img.height
+  img = ImageOps.exif_transpose(img)
+  buf = io.BytesIO()
+  if img.mode in ("RGBA", "LA", "P"):
+    img.save(buf, format="PNG")
+    filename = filename.rsplit(".", 1)[0] + ".png"
+  else:
+    img.convert("RGB").save(buf, format="JPEG", quality=95)
+    filename = filename.rsplit(".", 1)[0] + ".jpg"
+  return buf.getvalue(), filename, img.width, img.height
 
 
-def _run_expand_task(status_box, task, api):
-  """执行上传 → 提交扩图 → 轮询结果"""
-  file_bytes = task["file"]
-  filename = task["filename"]
-  p = task["params"]
-  try:
-    if task["cookie"]:
-      status_box.write("🔑 正在使用手动传入的 Cookie 凭证进行鉴权...")
+def compute_canvas(ow, oh, ratio=None, pad=0.4, anchor="居中", custom=None):
+  """根据目标比例 / 扩展幅度 / 原图位置算出画布和四边距。
+  返回 dict: bg_w, bg_h, top_d, bottom_d, left_d, right_d"""
+  if custom:
+    W, H = max(int(custom[0]), ow), max(int(custom[1]), oh)
+  else:
+    s = 1 + pad
+    if ratio:
+      r = ratio[0] / ratio[1]
+      W = max(ow * s, oh * s * r)
+      H = W / r
     else:
-      status_box.write("🔑 正在自动校验/获取后台宝尊账号鉴权...")
+      W, H = ow * s, oh * s
+    W, H = max(round(W), ow), max(round(H), oh)
+  ew, eh = W - ow, H - oh
+  left, top = ew // 2, eh // 2
+  if anchor == "靠上":
+    top = 0
+  elif anchor == "靠下":
+    top = eh
+  elif anchor == "靠左":
+    left = 0
+  elif anchor == "靠右":
+    left = ew
+  return {"bg_w": W, "bg_h": H, "top_d": top, "bottom_d": eh - top, "left_d": left, "right_d": ew - left}
 
-    status_box.write("正在上传图片到宝尊服务器...")
-    attachment_code = api.upload_image(file_bytes, filename)
 
-    status_box.write(
-        f"正在提交智能扩图任务 (目标画布: {p['bg_w']}x{p['bg_h']}, "
-        f"原图: {p['orig_w']}x{p['orig_h']})..."
-    )
-    record_code = api.submit_image_expand(
-        original_attachment_code=attachment_code,
-        top_distance=p["top_d"],
-        bottom_distance=p["bottom_d"],
-        left_distance=p["left_d"],
-        right_distance=p["right_d"],
-        background_weight=p["bg_w"],
-        background_height=p["bg_h"],
-        original_weight=p["orig_w"],
-        original_height=p["orig_h"],
-        generated_num=p["gen_num"],
-    )
+def layout_preview(img: Image.Image, c: dict, size: int = 640) -> Image.Image:
+  """画出原图在新画布里的位置（灰色部分由 AI 生成）"""
+  k = size / max(c["bg_w"], c["bg_h"])
+  canvas = Image.new("RGB", (max(1, round(c["bg_w"] * k)), max(1, round(c["bg_h"] * k))), (228, 228, 231))
+  thumb = img.convert("RGB").resize((max(1, round(img.width * k)), max(1, round(img.height * k))))
+  canvas.paste(thumb, (round(c["left_d"] * k), round(c["top_d"] * k)))
+  return canvas
 
-    status_box.write("AI 正在渲染生成图片（正在实时查询进度，预估 1~2 分钟）...")
-    result_urls = api.get_image_expand_result(
-        record_code,
-        poll_interval=3,
-        timeout=180,
-        expected_count=p["gen_num"],
-    )
 
-    status_box.update(
-        label="🎉 扩图生成完成！", state="complete", expanded=False
-    )
+# ---------------------------------------------------------------------------
+# 共享登录：所有用户共用一个宝尊会话，同一时间只会有一个登录流程
+# ---------------------------------------------------------------------------
+@st.cache_resource
+def get_api() -> BaozunExpandAPI:
+  return BaozunExpandAPI()
 
-    for col, url in zip(st.columns(len(result_urls)), result_urls):
-      col.image(url, use_container_width=True)
-      col.link_button("下载", url, use_container_width=True)
-  except Exception as e:
-    status_box.update(label=f"❌ 扩图失败: {str(e)}", state="error")
+
+def _run_job(job, status):
+  """执行（或继续）任务：上传 → 提交 → 等结果。任务编号一拿到就写回 job。"""
+  api = get_api()
+  if not job.get("record"):
+    status.write("上传图片...")
+    attachment = api.upload_image(job["file"], job["filename"])
+    status.write("提交扩图任务...")
+    job["record"] = api.submit_image_expand(original_attachment_code=attachment, **job["params"])
+  status.write("AI 生成中，通常需要 1 分钟左右...")
+  waited = st.empty()
+  urls = api.get_image_expand_result(
+      job["record"], expected_count=job["params"]["generated_num"],
+      on_tick=lambda s: waited.caption(f"已等待 {s} 秒"),
+  )
+  waited.empty()
+  return urls
 
 
 def render_ui():
   st.title("智能扩图", anchor=False)
+  state = st.session_state
+  job = state.get("exp_job")
 
   col_left, col_right = st.columns(2)
+  with col_right:
+    ratio_name = st.segmented_control("目标比例", list(RATIOS), default="原比例", key="exp_ratio")
+    ratio = RATIOS.get(ratio_name or "原比例")
+    custom = None
+    if ratio == "custom":
+      c1, c2 = st.columns(2)
+      custom = (c1.number_input("画布宽度", min_value=1, value=1200, step=50),
+                c2.number_input("画布高度", min_value=1, value=1200, step=50))
+      pad = 0.0
+    else:
+      pad = st.slider("扩展幅度", min_value=10, max_value=100, value=40, step=5, format="%d%%") / 100
+    anchor = st.segmented_control("原图位置", ANCHORS, default="居中", key="exp_anchor") or "居中"
+    gen_num = st.slider("生成数量", min_value=1, max_value=4, value=1)
 
   with col_left:
-    # 大小上限由 .streamlit/config.toml 的 maxUploadSize 统一限制
-    uploaded_file = st.file_uploader(
+    uploaded = st.file_uploader(
         "图片", type=["jpg", "jpeg", "png", "webp"], label_visibility="collapsed"
     )
-    orig_w, orig_h = 800, 800
-    if uploaded_file:
-      image = Image.open(uploaded_file)
-      orig_w, orig_h = image.size
-      st.image(image, caption=f"{orig_w} × {orig_h}", use_container_width=True)
+    canvas = image = None
+    if uploaded:
+      data, filename, ow, oh = prepare_image(uploaded.getvalue(), uploaded.name)
+      image = Image.open(io.BytesIO(data))
+      canvas = compute_canvas(ow, oh, None if ratio == "custom" else ratio, pad, anchor, custom)
+      # 竖图预览限制高度约 480px，避免撑出屏幕
+      tall = canvas["bg_h"] > canvas["bg_w"]
+      st.image(layout_preview(image, canvas),
+               width=round(480 * canvas["bg_w"] / canvas["bg_h"]) if tall else "stretch",
+               caption=f"{ow} × {oh} → {canvas['bg_w']} × {canvas['bg_h']}")
 
+  no_expand = canvas and canvas["bg_w"] == image.width and canvas["bg_h"] == image.height
   with col_right:
-    m1, m2, m3, m4 = st.columns(4)
-    top_d = m1.number_input("上边距", value=140, step=10)
-    bottom_d = m2.number_input("下边距", value=140, step=10)
-    left_d = m3.number_input("左边距", value=205, step=10)
-    right_d = m4.number_input("右边距", value=205, step=10)
+    start = st.button("生成", type="primary", width="stretch",
+                      disabled=not uploaded or bool(job) or bool(no_expand))
 
-    # 画布默认 = 原图 + 边距，可手动覆盖
-    c1, c2 = st.columns(2)
-    bg_w = c1.number_input(
-        "画布宽度",
-        value=orig_w + left_d + right_d if uploaded_file else 800,
-        min_value=orig_w,
-        step=50,
-    )
-    bg_h = c2.number_input(
-        "画布高度",
-        value=orig_h + top_d + bottom_d if uploaded_file else 800,
-        min_value=orig_h,
-        step=50,
-    )
-    gen_num = st.slider("生成数量", min_value=1, max_value=4, value=1)
-    start_btn = st.button(
-        "生成", type="primary", disabled=not uploaded_file, use_container_width=True
-    )
-
-  # ============ 任务状态机 ============
-  # 点击"立即生成"→ 记录任务 → rerun → 执行（可能等待人工验证码）
-  if start_btn and uploaded_file:
-    st.session_state["baozun_task"] = {
-        "cookie": st.session_state.get("baozun_cookie", ""),
-        "file": uploaded_file.getvalue(),
-        "filename": uploaded_file.name,
-        "params": {
-            "bg_w": int(bg_w),
-            "bg_h": int(bg_h),
-            "orig_w": orig_w,
-            "orig_h": orig_h,
-            "top_d": int(top_d),
-            "bottom_d": int(bottom_d),
-            "left_d": int(left_d),
-            "right_d": int(right_d),
-            "gen_num": int(gen_num),
-        },
+  if start:
+    job = {
+        "file": data, "filename": filename, "record": None,
+        "params": {**canvas, "orig_w": ow, "orig_h": oh, "generated_num": int(gen_num)},
     }
-    st.session_state.pop("baozun_otp_pending_api", None)
-    st.rerun()
+    state["exp_job"] = job
+    state.pop("exp_results", None)
 
-  task = st.session_state.get("baozun_task")
-  if task:
-    status_box = st.status("正在处理扩图任务...", expanded=True)
-    api = None
-    failed = False
+  # ---- 执行 / 继续任务 ----
+  if job:
+    status = st.status("正在处理扩图任务...", expanded=True)
     try:
-      api = _get_api(task["cookie"])
+      urls = _run_job(job, status)
+      state["exp_results"] = urls
+      state.pop("exp_job", None)
+      status.update(label="扩图完成", state="complete", expanded=False)
+    except LoginRequired:
+      status.update(label="需要邮箱验证码才能登录宝尊", state="running")
     except Exception as e:
-      status_box.update(label=f"❌ 扩图失败: {str(e)}", state="error")
-      st.session_state.pop("baozun_task", None)
-      failed = True
-    if not failed:
-      if api is None:
-        # 等待人工输入验证码（界面下方会显示输入框）
-        status_box.update(
-            label="请输入邮箱验证码",
-            state="running",
-        )
-      else:
-        _run_expand_task(status_box, task, api)
-        del st.session_state["baozun_task"]
+      state.pop("exp_job", None)
+      status.update(label=f"扩图失败：{e}", state="error")
 
-  # ============ 手动验证码输入 ============
-  pending_api = st.session_state.get("baozun_otp_pending_api")
-  if pending_api is not None:
-    code = st.text_input("邮箱验证码", key="baozun_manual_otp", max_chars=6)
-    if st.button("继续", type="primary", key="baozun_otp_submit"):
+  # ---- 人工验证码（自动读取邮箱超时时）----
+  api = get_api()
+  if api.pending:
+    code = st.text_input("邮箱验证码", max_chars=6, key="exp_otp")
+    if st.button("继续", type="primary", key="exp_otp_submit"):
       code = (code or "").strip()
       if not (len(code) == 6 and code.isdigit()):
         st.error("请输入 6 位数字验证码")
       else:
         try:
-          pending_api.complete_login_with_otp(code)
-          # 登录完成，写入会话缓存，稍后 rerun 时直接复用
-          st.session_state["baozun_api_cache"] = {
-              "api": pending_api,
-              "cookie": (task or {}).get("cookie", ""),
-              "is_manual": bool((task or {}).get("cookie", "")),
-              "ts": _time.time(),
-          }
-          st.session_state.pop("baozun_otp_pending_api", None)
+          api.complete_login_with_otp(code)
           st.rerun()
         except Exception as e:
-          st.error(f"验证码校验失败: {e}")
+          api.pending = None
+          state.pop("exp_job", None)
+          st.error(f"验证码校验失败：{e}（重新点击生成会发送新的验证码）")
+
+  # ---- 结果：一直保留到下一次生成 ----
+  urls = state.get("exp_results")
+  if urls:
+    for col, url in zip(st.columns(len(urls)), urls):
+      col.image(url, width="stretch")
+      col.link_button("下载", url, width="stretch")

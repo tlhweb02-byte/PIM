@@ -22,10 +22,6 @@ try:
 except ImportError:
   FetcherSession = None
 
-COOKIE_CACHE_FILE = os.path.join(
-    os.path.dirname(__file__), "baozun_cookie_cache.json"
-)
-
 # 宝尊 UAAC 统一认证中心（真实接口，已通过逆向前端 + 实机验证）
 UAAC_BASE = "https://api-base-ecs.baozun.com"
 
@@ -202,27 +198,37 @@ class BaozunAccountAPI:
     codes = re.findall(r"(?<![\dA-Za-z])\d{6}(?![\dA-Za-z])", text)
     return codes[0] if codes else ""
 
-  def fetch_latest_email_otp(
-      self, timeout: int = 180, poll_interval: int = 3, after_ts: float = None
-  ) -> str:
-    """从 QQ 邮箱提取宝尊发来的 6 位验证码（公司邮箱自动转发到 QQ）。
-    after_ts: 只认该时间戳之后到达的邮件（避免抓到历史验证码）"""
-    start_time = time.time()
-    login_fail_count = 0
+  # 不会收到验证码的文件夹（已发送/草稿/已删除）
+  _SKIP_FOLDERS = re.compile(r"sent|draft|deleted|trash|已发送|草稿|已删除", re.I)
 
-    while time.time() - start_time < timeout:
+  def fetch_latest_email_otp(
+      self, timeout: int = 180, poll_interval: int = 5, after_ts: float = None
+  ) -> str:
+    """从 QQ 邮箱读取宝尊发来的 6 位验证码（公司邮箱自动转发到 QQ）。
+
+    整个等待过程只保持一个 IMAP 连接；每轮只搜索发码当天之后的邮件，
+    且每封邮件只下载一次，避免频繁登录和整箱扫描触发 QQ 风控。
+    after_ts: 只认该时间戳之后到达的邮件（避免抓到历史验证码）
+    """
+    deadline = time.time() + timeout
+    since = time.strftime("%d-%b-%Y", time.gmtime((after_ts or time.time()) - 86400))
+    seen = set()
+    mail, folders, login_errors = None, [], 0
+
+    while time.time() < deadline:
       try:
-        mail = imaplib.IMAP4_SSL(self.imap_server, 993)
-        mail.login(self.qq_email, self.qq_auth_code)
-        login_fail_count = 0
-        code = self._scan_mailbox_for_otp(mail, after_ts=after_ts)
-        mail.logout()
+        if mail is None:
+          mail = imaplib.IMAP4_SSL(self.imap_server, 993)
+          mail.login(self.qq_email, self.qq_auth_code)
+          folders = self._list_folders(mail)
+        code = self._scan_new_mail(mail, folders, since, seen, after_ts)
         if code:
           return code
       except imaplib.IMAP4.error as e:
-        login_fail_count += 1
+        login_errors += 1
+        mail = None
         print(f"QQ邮箱IMAP错误: {e}")
-        if login_fail_count >= 3:
+        if login_errors >= 3:
           raise ValueError(
               f"QQ 邮箱 IMAP 登录失败({e})。请检查："
               f"1) QQ邮箱→设置→账户→IMAP/SMTP 服务是否开启; "
@@ -230,49 +236,56 @@ class BaozunAccountAPI:
               f"3) 云端 IP 是否被 QQ 风控拦截"
           )
       except Exception as e:
+        mail = None  # 连接断开：下一轮重连
         print(f"读取邮件验证码中: {e}")
-
       time.sleep(poll_interval)
 
+    if mail is not None:
+      try:
+        mail.logout()
+      except Exception:
+        pass
     return ""
 
-  def _scan_mailbox_for_otp(self, mail, after_ts: float = None) -> str:
-    """扫描收件箱及其它文件夹，按「到达时间优先 + 关键词加权」找验证码"""
+  def _list_folders(self, mail) -> list:
+    """收件箱优先，其余文件夹（如垃圾邮件、自定义规则文件夹）其次"""
     folders = ["INBOX"]
     try:
       _, raw_list = mail.list()
-      for line in raw_list:
+      for line in raw_list or []:
         m = re.search(rb'"([^"]*)"\s*$', line)
-        if m:
-          name = m.group(1).decode("ascii", errors="ignore")
-          if name and name not in folders:
-            folders.append(name)
+        name = m.group(1).decode("ascii", errors="ignore") if m else ""
+        if name and name not in folders and not self._SKIP_FOLDERS.search(name):
+          folders.append(name)
     except Exception:
       pass
+    return folders
 
+  def _scan_new_mail(self, mail, folders, since, seen, after_ts) -> str:
+    """只下载此前没看过的新邮件，返回得分最高的验证码"""
     best_code, best_score = "", -1
     for folder in folders:
       try:
-        status, _ = mail.select(folder)
-        if status != "OK":
+        if mail.select(f'"{folder}"', readonly=True)[0] != "OK":
           continue
-        _, search_data = mail.search(None, "ALL")
-        mail_ids = search_data[0].split()[-40:]
-
-        for mail_id in reversed(mail_ids):
-          _, msg_data = mail.fetch(mail_id, "(RFC822)")
-          for response_part in msg_data:
-            if not isinstance(response_part, tuple):
-              continue
-            msg = email.message_from_bytes(response_part[1])
-            code, score = self._score_email_for_otp(msg, after_ts=after_ts)
-            if code and score > best_score:
-              best_code, best_score = code, score
+        _, data = mail.search(None, "SINCE", since)
+        for mail_id in reversed(data[0].split()[-30:]):
+          key = (folder, mail_id)
+          if key in seen:
+            continue
+          seen.add(key)
+          _, msg_data = mail.fetch(mail_id, "(BODY.PEEK[])")
+          for part in msg_data:
+            if isinstance(part, tuple):
+              code, score = self._score_email_for_otp(
+                  email.message_from_bytes(part[1]), after_ts=after_ts
+              )
+              if code and score > best_score:
+                best_code, best_score = code, score
+      except imaplib.IMAP4.error:
+        raise
       except Exception:
         continue
-
-    if not best_code:
-      print("[验证码扫描] 未在邮箱中找到验证码")
     return best_code
 
   def _score_email_for_otp(self, msg, after_ts: float = None):
@@ -441,64 +454,6 @@ class BaozunAccountAPI:
         "tenant": self.tenant,
         "appkey": self.appkey,
     }
-
-  def diagnose_mailbox(self) -> dict:
-    """诊断 QQ 邮箱读取：返回文件夹列表与最近邮件，用于排查验证码读取失败"""
-    result = {"ok": False, "error": "", "folders": [], "emails": []}
-    try:
-      mail = imaplib.IMAP4_SSL(self.imap_server, 993)
-      mail.login(self.qq_email, self.qq_auth_code)
-      result["ok"] = True
-
-      try:
-        _, raw_list = mail.list()
-        for line in raw_list:
-          m = re.search(rb'"([^"]*)"\s*$', line)
-          if m:
-            result["folders"].append(
-                m.group(1).decode("ascii", errors="ignore")
-            )
-      except Exception as e:
-        result["folders"].append(f"(列表失败: {e})")
-
-      try:
-        mail.select("INBOX")
-        _, data = mail.search(None, "ALL")
-        ids = data[0].split()[-10:]
-        for mid in reversed(ids):
-          _, msg_data = mail.fetch(mid, "(RFC822)")
-          for rp in msg_data:
-            if not isinstance(rp, tuple):
-              continue
-            msg = email.message_from_bytes(rp[1])
-            subject = str(msg.get("Subject", "") or "")
-            sender = str(msg.get("From", "") or "")
-            otp = self._extract_otp(subject + " " + self._extract_body(msg))
-            age = ""
-            try:
-              dt = email_utils.parsedate_to_datetime(
-                  msg.get("Date", "") or ""
-              )
-              if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-              age = f"{int((datetime.now(timezone.utc) - dt).total_seconds())}秒前"
-            except Exception:
-              pass
-            result["emails"].append({
-                "subject": subject[:60],
-                "sender": sender[:50],
-                "age": age,
-                "codes": [otp] if otp else [],
-            })
-      except Exception as e:
-        result["emails"].append({
-            "subject": f"(收件箱读取失败: {e})", "sender": "", "age": "", "codes": []
-        })
-
-      mail.logout()
-    except Exception as e:
-      result["error"] = str(e)
-    return result
 
   def complete_login_with_otp(
       self, otp_code: str, session, tenant: str = "", appkey: str = ""
