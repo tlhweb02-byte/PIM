@@ -18,7 +18,7 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-配置参考 `.env.example`；部署到 Streamlit Cloud 时写入 Secrets。
+本地配置参考 `.env.example`。线上部署在香港服务器，合并到 `main` 后自动测试并部署，详见 `DEPLOYMENT_GUIDE.md`。
 
 ## 结构
 
